@@ -5,13 +5,13 @@ The agent sends a block with `sql` and `bind` and without the data. The door run
 
   bind = "<key>"   the rows become spec[key] as a list of objects, one per row, keyed by column name
                    (bar and hbar `data`, donut `slices`, kpi `items`, heatmap `cells`, map `points`, ...)
-  bind = "series"  wide form for line, area, stacked_area and grouped: the first column is the label of each point,
+  bind = "series"  wide form for line, area, stacked_area, grouped, small_multiples and bump (combo: label, bars, line): the first column is the label of each point,
                    every other column is one series named by its column
   a table          bind = "rows": each row becomes a list in column order
 """
 from __future__ import annotations
 
-WIDE = {"line": "labels", "area": "labels", "stacked_area": "labels", "grouped": "categories"}
+WIDE = {"line": "labels", "area": "labels", "stacked_area": "labels", "grouped": "categories", "small_multiples": "labels", "bump": "labels"}
 
 
 class BindError(Exception):
@@ -27,10 +27,17 @@ def apply(spec: dict, result: dict) -> dict:
     if not rows:
         raise BindError("the query returned no rows: check its filters and dates, or say in an insight that there is no data")
     out = {k: v for k, v in spec.items()}
+    if key == "series" and spec.get("chart") == "combo":
+        if len(columns) != 3:
+            raise BindError("a combo query returns 3 columns: the label, the measure of the bars, the measure of the line")
+        out["labels"] = [str(r[0]) for r in rows]
+        out["bars"] = {"name": columns[1], "values": [r[1] for r in rows]}
+        out["line"] = {"name": columns[2], "values": [r[2] for r in rows]}
+        return out
     if key == "series":
         label_key = WIDE.get(spec.get("chart"))
         if label_key is None:
-            raise BindError('"bind": "series" works for line, area, stacked_area and grouped')
+            raise BindError('"bind": "series" works for line, area, stacked_area, grouped, small_multiples, bump and combo')
         if len(columns) < 2:
             raise BindError("a series query needs the label column first and one column per series after it")
         out[label_key] = [str(r[0]) for r in rows]
@@ -40,6 +47,11 @@ def apply(spec: dict, result: dict) -> dict:
         out["rows"] = [list(r) for r in rows]
         return out
     out[key] = [dict(zip(columns, r)) for r in rows]
+    if spec.get("chart") == "gantt":
+        for row in out[key]:
+            for field in ("start", "end"):
+                if row.get(field) is not None:
+                    row[field] = str(row[field])[:10]
     if spec.get("chart") == "heatmap" and key == "cells":
         for field in ("row", "col"):
             if field not in columns:

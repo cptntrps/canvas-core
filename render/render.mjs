@@ -9,7 +9,8 @@ const esc = C.esc;
 export const WIDTH = 358;            // iPhone canvas column in points; the svg scales to the real width
 
 export const CHARTS = ['line', 'area', 'stacked_area', 'bar', 'grouped', 'hbar', 'pareto', 'waterfall', 'diverging', 'dumbbell', 'slope',
-  'stacked', 'donut', 'treemap', 'heatmap', 'calendar', 'histogram', 'boxplot', 'bullet', 'gauge', 'funnel', 'sankey', 'scatter', 'wordcloud'];
+  'stacked', 'donut', 'treemap', 'heatmap', 'calendar', 'histogram', 'boxplot', 'bullet', 'gauge', 'funnel', 'sankey', 'scatter', 'wordcloud',
+  'combo', 'small_multiples', 'bump', 'bubbles', 'gantt', 'strip'];
 export const KINDS = ['heading', 'kpi', 'insight', 'chart', 'table', 'map', 'timeline'];
 const FORMATS = ['number', 'integer', 'usd', 'brl', 'percent'];
 
@@ -420,6 +421,56 @@ const BUILD = {
     const data = labelled(list(b, 'data', { min: 3, max: 9, hint: 'Keep the top 8 and one "Other".' }), 'data', { maxLabel: 12, signed: false });
     return C.pareto({ data, width: WIDTH, height: 250, fmtY: fitFormatter(f, data.map(d => d.value), 44), label: b.title });
   },
+  combo(b, f) {
+    const labels = list(b, 'labels', { min: 2, max: 24, hint: 'Group the periods (months, not days).' }).map((x, i) => (typeof x === 'string' || C.fin(x)) ? String(x) : fail(`labels[${i}] must be text`));
+    const one = k => {
+      if (!isObj(b[k])) fail(`${k} must be an object {name, values}`);
+      const values = list(b[k], 'values', { min: labels.length, max: labels.length, path: `${k}.` });
+      values.forEach((v, j) => { if (v != null && (!C.fin(v) || v < 0)) fail(`${k}.values[${j}] must be a number of zero or more, or null`); });
+      return { name: str(b[k], 'name', { max: 22, path: `${k}.` }), values };
+    };
+    const bars = one('bars'), line = one('line'), lf = isObj(b.line_axis) ? fmtFields(b.line_axis, 'line_axis.') : { format: 'number', decimals: null, suffix: '' };
+    return C.comboChart({ labels, bars, line, width: WIDTH, height: 250, fmtY: fitFormatter(f, bars.values.filter(v => v != null), 44),
+      fmtY2: formatter(lf, { compact: true, values: line.values.filter(v => v != null) }), label: b.title });
+  },
+  small_multiples(b, f) {
+    const labels = list(b, 'labels', { min: 3, max: 90 }).map((x, i) => (typeof x === 'string' || C.fin(x)) ? String(x) : fail(`labels[${i}] must be text`));
+    const series = seriesOf(b, labels.length, { min: 2, max: 9, hint: 'Keep the 8 largest and one "Other".' });
+    return C.smallMultiples({ labels, series, width: WIDTH, fmtY: formatter(f, { compact: true, values: series.flatMap(s => s.values.filter(v => v != null)) }), label: b.title });
+  },
+  bump(b, f) {
+    const labels = list(b, 'labels', { min: 2, max: 24 }).map((x, i) => (typeof x === 'string' || C.fin(x)) ? String(x) : fail(`labels[${i}] must be text`));
+    const series = seriesOf(b, labels.length, { min: 2, max: 8, hint: 'Keep the 8 items that lead at the end.' });
+    return C.bump({ labels, series, width: WIDTH, fmtY: formatter(f, { compact: true, values: series.flatMap(s => s.values.filter(v => v != null)) }), label: b.title });
+  },
+  bubbles(b, f) {
+    const items = labelled(list(b, 'items', { min: 3, max: 24, hint: 'Keep the 23 largest and one "Other".' }), 'items', { maxLabel: 24, positive: true });
+    return C.bubbles({ items, width: WIDTH, height: 270, fmtY: formatter(f, { compact: true, values: items.map(d => d.value) }), label: b.title });
+  },
+  gantt(b) {
+    const date = (r, k, i) => /^\d{4}-\d{2}-\d{2}$/.test(String(r[k])) && !Number.isNaN(Date.parse(r[k] + 'T00:00:00Z')) ? String(r[k]) : fail(`rows[${i}].${k} must be a date as YYYY-MM-DD`);
+    const rows = list(b, 'rows', { min: 2, max: 14, hint: 'Keep the 14 rows that matter most.' }).map((r, i) => {
+      if (!isObj(r)) fail(`rows[${i}] must be an object {label, start, end, group?}`);
+      const out = { label: str(r, 'label', { max: 28, path: `rows[${i}].` }), start: date(r, 'start', i), end: date(r, 'end', i) };
+      if (out.end < out.start) fail(`rows[${i}] ends before it starts`);
+      if (r.group != null) out.group = str(r, 'group', { max: 18, path: `rows[${i}].` });
+      return out;
+    });
+    if (new Set(rows.map(r => r.group).filter(x => x != null)).size > 5) fail('the gantt has more than 5 groups; the colours cannot be told apart. Use 5 groups at most.');
+    return C.gantt({ rows, width: WIDTH, today: TODAY != null ? new Date(TODAY).toISOString().slice(0, 10) : null, label: b.title });
+  },
+  strip(b, f) {
+    const groups = new Map();
+    list(b, 'points', { min: 5, max: 400, hint: 'Sample the rows, or use a boxplot.' }).forEach((p, i) => {
+      if (!isObj(p)) fail(`points[${i}] must be an object {label, value, name?}`);
+      const label = str(p, 'label', { max: 22, path: `points[${i}].` }), value = num(p, 'value', { path: `points[${i}].` });
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push({ value, name: p.name != null ? String(p.name).slice(0, 40) : undefined });
+    });
+    if (groups.size > 8) fail(`the strip plot has ${groups.size} categories; the limit is 8. Group the small ones.`);
+    return C.strip({ groups: [...groups].map(([label, points]) => ({ label, points })), width: WIDTH,
+      fmtY: formatter(f, { compact: true, values: [...groups.values()].flat().map(p => p.value) }), label: b.title });
+  },
 };
 
 // series: [{ name, values: [one per x position] }] with values of zero or more (null = missing).
@@ -440,6 +491,8 @@ const CHART_FIELDS = {
   bar: ['data', 'target', 'annotations'], hbar: ['data', 'highlight'], waterfall: ['items', 'annotations', 'up_is'],
   diverging: ['data', 'up_is'], dumbbell: ['rows', 'a_label', 'b_label'], stacked: ['columns', 'keys'],
   donut: ['slices', 'center_label'], heatmap: ['rows', 'cols', 'cells'], scatter: ['groups', 'x_label', 'y_label', 'x', 'trend'],
+  combo: ['labels', 'bars', 'line', 'line_axis'], small_multiples: ['labels', 'series'], bump: ['labels', 'series'], bubbles: ['items'],
+  gantt: ['rows'], strip: ['points'],
 };
 
 function chart(b) {

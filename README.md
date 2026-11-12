@@ -20,6 +20,13 @@ Three kinds of request:
 - **Dashboard layouts:** when you ask for a dashboard you can pick a layout: Executive overview, Trend and breakdown,
   Plan against actual, Ranking and concentration, or Segments. "Auto" lets the app choose by the subject.
 
+## Charts
+
+30 chart forms, chosen by the shape of the data: line, area, stacked area, bars (vertical, horizontal, grouped, stacked),
+bars with a line on a second scale, small multiples, rank over time (bump), pareto, waterfall, diverging, dumbbell,
+slope, donut, treemap, packed bubbles, heatmap, calendar, histogram, box plot, strip plot (every item as a dot),
+bullet, gauge, funnel, sankey, scatter, Gantt and word cloud. A street map and a day timeline are separate blocks.
+
 ## Working with a page
 
 - **Other chart:** on any chart, see the same query in another form (bar, donut, treemap, line, area, ...). Only

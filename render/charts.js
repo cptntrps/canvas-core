@@ -1002,6 +1002,208 @@ export function wordCloud({ words = [], label, width = 600, height = 300, minSiz
   return svg(W, height, f.deco + g, lab).replace('<svg ', `<svg data-omitted="${omitted}" `);
 }
 
+// =====================================================================================
+// Builders added in 0.5.0: the forms a Tableau "Show Me" panel has and this set lacked.
+// =====================================================================================
+
+// ---------- combo (bars on the left axis, a line on the right axis: an amount and its rate or count) ----------
+// labels: [x, ...]; bars: { name, values }; line: { name, values }. Each has its own scale and its own format.
+export function comboChart({ labels = [], bars = {}, line = {}, label, width = 600, height = 270, fmtY = num, fmtY2 = num,
+  title, unit, source, colors } = {}) {
+  const f = frame({ title, unit, source, H: height }), lab = label ?? title ?? 'combo chart', W = width;
+  const cb = pickColor(bars.color, colors, [bars.name], palette(0)), cl = pickColor(line.color, colors, [line.name], palette(3));
+  const lg = legendRows([{ name: bars.name, color: cb }, { name: line.name, color: cl, marker: 'filled' }], W, f.top);
+  const bv = (bars.values || []).map(v => v ?? null), lv = (line.values || []).map(v => v ?? null);
+  if (!labels.length || !bv.some(fin)) return noData(W, height, f.deco + lg.svg, lab);
+  bv.forEach((v, i) => { if (v != null) nonNeg(v, `combo bar value ${i}`); });
+  lv.forEach((v, i) => { if (v != null) nonNeg(v, `combo line value ${i}`); });
+  const t1 = niceTicks(0, Math.max(...bv.filter(fin)) * 1.12), m1 = t1[t1.length - 1] || 1;
+  const t2 = niceTicks(0, Math.max(0, ...lv.filter(fin)) * 1.12 || 1), m2 = t2[t2.length - 1] || 1;
+  const R = Math.max(30, Math.ceil(Math.max(...t2.map(t => textW(fmtY2(t), 12)))) + 10);
+  const L = 54, Tp = 16 + f.top + lg.height, B = 34, H = height - f.bottom;
+  const Y = v => Tp + (1 - v / m1) * (H - Tp - B), Y2 = v => Tp + (1 - v / m2) * (H - Tp - B), bw = (W - L - R) / labels.length;
+  let g = gridY(t1, L, R, W, Y, fmtY);
+  g += t2.filter((_, i) => i % Math.ceil(t2.length / 5) === 0 || i === t2.length - 1).map(t => axisText(W - R + 6, Y2(t) + 4, 'start', fmtY2(t), `fill="${cl}"`)).join('');
+  const every = Math.max(1, Math.ceil(labels.length / Math.max(2, Math.floor((W - L - R) / 56))));
+  const pts = [];
+  labels.forEach((x, i) => {
+    const bx = L + i * bw + bw * 0.16, w = bw * 0.68;
+    if (bv[i] != null) g += `<rect x="${round2(bx)}" y="${round2(Y(bv[i]))}" width="${round2(w)}" height="${round2(Math.max(1, Y(0) - Y(bv[i])))}" rx="2.5" fill="${cb}">` +
+      `<title>${esc(x)} ${esc(bars.name)}: ${esc(fmtY(bv[i]))}</title></rect>`;
+    if (lv[i] != null) pts.push([bx + w / 2, Y2(lv[i]), i]);
+    if (i % every === 0) g += axisText(bx + w / 2, H - 12, 'middle', fit(x, bw * every - 2));
+  });
+  g += `<polyline fill="none" stroke="${cl}" stroke-width="2.4" points="${pts.map(p => round2(p[0]) + ',' + round2(p[1])).join(' ')}"/>` +
+    pts.map(p => `<circle cx="${round2(p[0])}" cy="${round2(p[1])}" r="3.2" fill="${cl}" stroke="${PAPER}" stroke-width="1"><title>${esc(labels[p[2]])} ${esc(line.name)}: ${esc(fmtY2(lv[p[2]]))}</title></circle>`).join('');
+  return svg(W, height, f.deco + lg.svg + g, lab);
+}
+
+// ---------- small multiples (one small panel per item, all on one scale: compare shapes, not one tangle) ----------
+// labels: [x, ...]; series: [{ name, values }]. Every panel shares the y scale, so heights compare across panels.
+export function smallMultiples({ labels = [], series = [], label, width = 600, panelHeight = 78, fmtY = num, title, unit, source, colors, columns } = {}) {
+  const lab = label ?? title ?? 'small multiples', W = width, bandTop = title != null || unit != null ? TOP_BAND : 0;
+  const cols = columns ?? (W >= 520 ? 3 : series.length > 6 ? 3 : 2), rows = Math.ceil(Math.max(1, series.length) / cols);
+  const gap = 10, pw = (W - gap * (cols - 1)) / cols, ph = panelHeight + 34, Tp = bandTop + 4;
+  const height = Tp + rows * ph + (source != null ? BOTTOM_BAND : 0), f = frame({ title, unit, source, H: height });
+  const all = series.flatMap(s => s.values || []).filter(fin);
+  if (labels.length < 2 || !all.length) return noData(W, height, f.deco, lab);
+  all.forEach((v, i) => nonNeg(v, `smallMultiples value ${i}`));
+  const ymax = Math.max(...all) * 1.08 || 1;
+  let g = '';
+  series.forEach((s, si) => {
+    const x0 = (si % cols) * (pw + gap), y0 = Tp + Math.floor(si / cols) * ph, col = pickColor(s.color, colors, [s.name], palette(0));
+    const X = i => x0 + 3 + i * (pw - 6) / (labels.length - 1), Y = v => y0 + 18 + (1 - v / ymax) * (panelHeight - 4);
+    const pts = (s.values || []).map((v, i) => fin(v) ? [X(i), Y(v), i] : null).filter(Boolean);
+    const last = pts[pts.length - 1], lastT = last ? fmtY(s.values[last[2]]) : '';
+    g += axisText(x0, y0 + 12, 'start', fit(s.name, pw - textW(lastT, 11) - 8, 11), `font-size="11" font-weight="700" fill="${INK}"`) +
+      axisText(x0 + pw, y0 + 12, 'end', lastT, `font-size="11" font-weight="600" fill="${INK}"`);
+    g += `<line x1="${round2(x0)}" x2="${round2(x0 + pw)}" y1="${round2(Y(0))}" y2="${round2(Y(0))}" stroke="${GRID}" stroke-width="1"/>`;
+    if (pts.length > 1) {
+      const path = pts.map(p => round2(p[0]) + ',' + round2(p[1])).join(' ');
+      g += `<polygon fill="${col}" fill-opacity=".14" points="${round2(pts[0][0])},${round2(Y(0))} ${path} ${round2(last[0])},${round2(Y(0))}"/>` +
+        `<polyline fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" points="${path}"/>`;
+    }
+    const hi = pts.reduce((a, p) => !a || p[1] < a[1] ? p : a, null);
+    pts.forEach(p => { g += `<circle cx="${round2(p[0])}" cy="${round2(p[1])}" r="${p === last || p === hi ? 2.6 : 5}" fill="${col}"${p === last || p === hi ? '' : ' fill-opacity="0"'}>` +
+      `<title>${esc(s.name)} ${esc(labels[p[2]])}: ${esc(fmtY(s.values[p[2]]))}</title></circle>`; });
+    g += axisText(x0, y0 + panelHeight + 28, 'start', fit(labels[0], pw / 2 - 2, 9), `font-size="9"`) +
+      axisText(x0 + pw, y0 + panelHeight + 28, 'end', fit(labels[labels.length - 1], pw / 2 - 2, 9), `font-size="9"`);
+  });
+  return svg(W, height, f.deco + g, lab);
+}
+
+// ---------- bump chart (the rank of each item over time: who overtook whom) ----------
+// labels: [x, ...]; series: [{ name, values }]. The rank at each x is computed here: the largest value is rank 1.
+export function bump({ labels = [], series = [], label, width = 600, rowHeight = 30, fmtY = num, title, unit, source, colors } = {}) {
+  const lab = label ?? title ?? 'bump chart', W = width, bandTop = title != null || unit != null ? TOP_BAND : 0, n = series.length;
+  const Tp = bandTop + 14, plotH = Math.max(1, n) * rowHeight, height = Tp + plotH + 24 + (source != null ? BOTTOM_BAND : 0);
+  const f = frame({ title, unit, source, H: height });
+  if (labels.length < 2 || n < 2) return noData(W, height, f.deco, lab);
+  const rank = labels.map((_, i) => {
+    const order = series.map((s, si) => ({ si, v: s.values[i] })).filter(o => fin(o.v)).sort((a, b) => b.v - a.v || a.si - b.si);
+    return new Map(order.map((o, k) => [o.si, k + 1]));
+  });
+  const R = Math.min(Math.ceil(Math.max(...series.map(s => textW(s.name, 11)))) + 12, Math.round(W * 0.36)), L = 22;
+  const X = i => L + 8 + i * (W - L - R - 16) / (labels.length - 1), Y = r => Tp + (r - 0.5) * rowHeight;
+  let g = '';
+  for (let r = 1; r <= n; r++) g += axisText(L - 8, Y(r) + 4, 'end', String(r), `font-size="11"`) +
+    `<line x1="${L}" x2="${round2(W - R)}" y1="${round2(Y(r))}" y2="${round2(Y(r))}" stroke="${GRID}" stroke-width="1" stroke-dasharray="2 4"/>`;
+  const every = Math.max(1, Math.ceil(labels.length / Math.max(2, Math.floor((W - L - R) / (Math.max(...labels.map(x => textW(x, 11))) + 10)))));
+  g += labels.map((x, i) => (i % every === 0 && (i === 0 || labels.length - 1 - i >= every) || i === labels.length - 1) ? axisText(X(i), Tp + plotH + 14, i === 0 ? 'start' : i === labels.length - 1 ? 'end' : 'middle', x, `font-size="11"`) : '').join('');
+  const lastRank = si => { for (let i = labels.length - 1; i >= 0; i--) if (rank[i].has(si)) return [i, rank[i].get(si)]; return null; };
+  const order = series.map((_, si) => si).sort((a, b) => (lastRank(b)?.[1] ?? 99) - (lastRank(a)?.[1] ?? 99));   // the leaders are drawn last, on top
+  order.forEach(si => {
+    const s = series[si], end = lastRank(si); if (!end) return;
+    const col = pickColor(s.color, colors, [s.name], end[1] <= 5 ? palette(end[1] - 1) : MUTED);
+    const pts = labels.map((_, i) => rank[i].has(si) ? [X(i), Y(rank[i].get(si)), i] : null).filter(Boolean);
+    let d = `M${round2(pts[0][0])},${round2(pts[0][1])}`;
+    for (let k = 1; k < pts.length; k++) { const a = pts[k - 1], b = pts[k], mx = (a[0] + b[0]) / 2; d += ` C${round2(mx)},${round2(a[1])} ${round2(mx)},${round2(b[1])} ${round2(b[0])},${round2(b[1])}`; }
+    g += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${end[1] <= 5 ? 3 : 2}" stroke-linecap="round"/>`;
+    g += pts.map(p => `<circle cx="${round2(p[0])}" cy="${round2(p[1])}" r="4.5" fill="${col}" stroke="${PAPER}" stroke-width="1.5">` +
+      `<title>${esc(s.name)} ${esc(labels[p[2]])}: rank ${rank[p[2]].get(si)}, ${esc(fmtY(s.values[p[2]]))}</title></circle>`).join('');
+    g += axisText(X(end[0]) + 10, Y(end[1]) + 4, 'start', fit(s.name, R - 12, 11), `font-size="11" font-weight="${end[1] <= 3 ? 700 : 500}" fill="${INK}"`);
+  });
+  return svg(W, height, f.deco + g, lab);
+}
+
+// ---------- packed bubbles (many items of one kind, area = value; for a first look, not for exact reading) ----------
+// items: [{ label, value, color? }], values above zero. The largest sits in the middle; no two circles overlap.
+export function bubbles({ items = [], label, width = 600, height = 280, fmtY = num, title, unit, source, colors, color } = {}) {
+  const f = frame({ title, unit, source, H: height }), lab = label ?? title ?? 'bubbles', W = width, H = height - f.bottom, Tp = f.top + 2;
+  if (!items.length) return noData(W, height, f.deco, lab);
+  items.forEach((it, i) => { if (!fin(it.value) || it.value <= 0) throw new RangeError(`bubbles item ${i} must be a number above zero`); });
+  const sorted = items.map((it, i) => ({ it, i })).sort((a, b) => b.it.value - a.it.value), total = sorted.reduce((a, b) => a + b.it.value, 0);
+  const cx = W / 2, cy = Tp + (H - Tp) / 2;
+  let placed = [];
+  for (let fill = 0.62; fill > 0.12; fill *= 0.9) {            // shrink until every circle finds a free place
+    const k = Math.sqrt(fill * W * (H - Tp) / (Math.PI * total)); placed = [];
+    const ok = sorted.every(b => {
+      const r = Math.max(3, k * Math.sqrt(b.it.value));
+      for (let t = 0; t < 2400; t++) {
+        const a = t * 0.3, d = 0.9 * a, x = cx + d * Math.cos(a) * 1.25, y = cy + d * Math.sin(a) * 0.8;
+        if (x - r < 1 || x + r > W - 1 || y - r < Tp || y + r > H - 1) continue;
+        if (placed.every(p => (p.x - x) ** 2 + (p.y - y) ** 2 >= (p.r + r + 1.5) ** 2)) { placed.push({ ...b, x, y, r }); return true; }
+      }
+      return false;
+    });
+    if (ok) break;
+  }
+  if (placed.length < sorted.length) throw new RangeError('the bubbles do not fit: send fewer items');
+  const g = placed.map((b, k) => {
+    const own = pickColor(b.it.color, colors, [b.it.label], null), op = sorted.length === 1 ? 1 : 1 - 0.62 * k / (sorted.length - 1);
+    const val = fmtY(b.it.value), ink = own || op > 0.55 ? PAPER : INK, inner = 2 * b.r - 8;
+    let text = '';
+    if (inner >= 26) text += axisText(b.x, b.y + (b.r >= 22 ? -1 : 4), 'middle', fit(b.it.label, inner, 11), `fill="${ink}" font-weight="700" font-size="11"`);
+    if (b.r >= 22 && inner >= textW(val, 10)) text += axisText(b.x, b.y + 12, 'middle', val, `fill="${ink}" font-size="10"`);
+    return `<circle cx="${round2(b.x)}" cy="${round2(b.y)}" r="${round2(b.r)}" fill="${own || color || palette(0)}"${own ? '' : ` fill-opacity="${round2(op)}"`}>` +
+      `<title>${esc(b.it.label)}: ${esc(val)} (${Math.round(b.it.value / total * 100)}%)</title></circle>` + text;
+  }).join('');
+  return svg(W, height, f.deco + g, lab);
+}
+
+// ---------- gantt (what runs when: projects, contracts, trips, campaigns) ----------
+// rows: [{ label, start, end, group? }] with dates as YYYY-MM-DD, in the order given. `today` (YYYY-MM-DD) draws a rule.
+export function gantt({ rows = [], label, width = 600, rowHeight = 26, title, unit, source, colors, today = null } = {}) {
+  const lab = label ?? title ?? 'gantt', W = width, bandTop = title != null || unit != null ? TOP_BAND : 0;
+  const day = s => Date.parse(String(s) + 'T00:00:00Z'), DAY = 86400000;
+  const groups = [...new Set(rows.map(r => r.group).filter(x => x != null))];
+  const lg = legendRows(groups.map((n, i) => ({ name: n, color: pickColor(null, colors, [n], palette(i)) })), W, bandTop);
+  const Tp = bandTop + lg.height + 20, plotH = Math.max(1, rows.length) * rowHeight;
+  const height = Tp + plotH + 6 + (source != null ? BOTTOM_BAND : 0), f = frame({ title, unit, source, H: height });
+  if (!rows.length) return noData(W, height, f.deco + lg.svg, lab);
+  rows.forEach((r, i) => { if (Number.isNaN(day(r.start)) || Number.isNaN(day(r.end)) || day(r.end) < day(r.start)) throw new RangeError(`gantt row ${i} needs start and end dates (YYYY-MM-DD) with end on or after start`); });
+  const lo = Math.min(...rows.map(r => day(r.start))), hi = Math.max(...rows.map(r => day(r.end))) + DAY, span = hi - lo;
+  const L = Math.min(Math.ceil(Math.max(...rows.map(r => textW(r.label, 12)))) + 12, Math.round(W * 0.38)), R = 8;
+  const X = t => L + (t - lo) / span * (W - L - R);
+  const fmtD = t => new Date(t).toLocaleDateString('en-US', span > 300 * DAY ? { month: 'short', year: '2-digit', timeZone: 'UTC' } : { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  let g = '';
+  const nt = Math.max(2, Math.min(5, Math.floor((W - L - R) / 62)));
+  for (let k = 0; k <= nt; k++) {
+    const t = lo + (span - DAY) * k / nt, x = X(t);
+    g += `<line x1="${round2(x)}" x2="${round2(x)}" y1="${Tp - 4}" y2="${Tp + plotH}" stroke="${GRID}" stroke-width="1"/>` +
+      axisText(x, Tp - 8, k === 0 ? 'start' : k === nt ? 'end' : 'middle', fmtD(t), `font-size="10"`);
+  }
+  rows.forEach((r, i) => {
+    const bh = Math.min(16, rowHeight - 8), y = Tp + i * rowHeight + (rowHeight - bh) / 2, x = X(day(r.start)), w = Math.max(3, X(day(r.end) + DAY) - x);
+    const col = pickColor(r.color, colors, [r.label, r.group], r.group != null ? palette(groups.indexOf(r.group)) : palette(0));
+    const days = Math.round((day(r.end) - day(r.start)) / DAY) + 1;
+    g += axisText(L - 8, y + bh / 2 + 4, 'end', fit(r.label, L - 12), `fill="${INK}"`);
+    g += `<rect x="${round2(x)}" y="${round2(y)}" width="${round2(w)}" height="${bh}" rx="4" fill="${col}">` +
+      `<title>${esc(r.label)}: ${esc(r.start)} to ${esc(r.end)} (${days} day${days > 1 ? 's' : ''})</title></rect>`;
+  });
+  const now = today != null ? day(today) : NaN;
+  if (now >= lo && now <= hi) g += `<line x1="${round2(X(now))}" x2="${round2(X(now))}" y1="${Tp - 4}" y2="${Tp + plotH}" stroke="${TGT}" stroke-width="1.5" stroke-dasharray="4 3"/>` +
+    axisText(X(now), Tp + plotH + 4, X(now) > W - 40 ? 'end' : 'middle', 'today', `font-size="9" fill="${TGT}"`);
+  return svg(W, height, f.deco + lg.svg + g, lab);
+}
+
+// ---------- strip plot (Tableau's circle view: every item as a dot, per category, on one scale) ----------
+// groups: [{ label, points: [{ value, name? }] }]. A tick marks the median of each group. Height follows the groups.
+export function strip({ groups = [], label, width = 600, rowHeight = 34, fmtY = num, title, unit, source, colors } = {}) {
+  const lab = label ?? title ?? 'strip plot', W = width, bandTop = title != null || unit != null ? TOP_BAND : 0;
+  const Tp = bandTop + 6, plotH = Math.max(1, groups.length) * rowHeight, height = Tp + plotH + 22 + (source != null ? BOTTOM_BAND : 0);
+  const f = frame({ title, unit, source, H: height }), all = groups.flatMap(gr => gr.points.map(p => p.value));
+  if (!all.length) return noData(W, height, f.deco, lab);
+  all.forEach((v, i) => { if (!fin(v)) throw new RangeError(`strip value ${i} must be a number`); });
+  const min = Math.min(...all), max = Math.max(...all), start = min >= 0 && min < 0.6 * max ? 0 : min;
+  const ticks = niceTicks(start, max === start ? start + 1 : max), lo = ticks[0], hi = ticks[ticks.length - 1];
+  const L = Math.min(Math.ceil(Math.max(...groups.map(gr => textW(gr.label, 12)))) + 12, Math.round(W * 0.36)), R = 14;
+  const X = v => L + 6 + (v - lo) / ((hi - lo) || 1) * (W - L - R - 12);
+  const stepT = Math.max(1, Math.ceil(ticks.length / Math.max(2, Math.floor((W - L - R) / 52))));
+  let g = ticks.map((t, i) => i % stepT ? '' : `<line x1="${round2(X(t))}" x2="${round2(X(t))}" y1="${Tp}" y2="${Tp + plotH}" stroke="${GRID}" stroke-width="1"/>` + axisText(X(t), Tp + plotH + 14, 'middle', fmtY(t), `font-size="11"`)).join('');
+  groups.forEach((gr, i) => {
+    const cy = Tp + (i + 0.5) * rowHeight, col = pickColor(gr.color, colors, [gr.label], palette(0));
+    const sorted = gr.points.map(p => p.value).sort((a, b) => a - b), m = sorted.length, med = m % 2 ? sorted[(m - 1) / 2] : (sorted[m / 2 - 1] + sorted[m / 2]) / 2;
+    g += axisText(L - 8, cy + 4, 'end', fit(gr.label, L - 12), `fill="${INK}"`);
+    g += gr.points.map((p, j) => `<circle cx="${round2(X(p.value))}" cy="${round2(cy + ((j * 7) % 9 - 4) * Math.min(1.6, (rowHeight - 12) / 9))}" r="4" fill="${col}" fill-opacity=".5">` +
+      `<title>${esc(p.name != null ? p.name + ', ' : '')}${esc(gr.label)}: ${esc(fmtY(p.value))}</title></circle>`).join('');
+    g += `<line x1="${round2(X(med))}" x2="${round2(X(med))}" y1="${round2(cy - rowHeight / 2 + 4)}" y2="${round2(cy + rowHeight / 2 - 4)}" stroke="${INK}" stroke-width="2"><title>${esc(gr.label)} median: ${esc(fmtY(med))}</title></line>`;
+  });
+  return svg(W, height, f.deco + g, lab);
+}
+
+
 export default { lineChart, barChart, waterfall, scatter, divergingBars, dumbbell, stackedBars, hbarChart, donut, heatmap, sparkline,
   groupedBars, stackedArea, slope, bullet, histogram, boxPlot, calendar, treemap, funnel, sankey, gauge, pareto, wordCloud,
+  comboChart, smallMultiples, bump, bubbles, gantt, strip,
   niceTicks, svg, esc, fin, palette };

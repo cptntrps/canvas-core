@@ -52,6 +52,37 @@ def test_a_table_takes_rows_as_lists_and_a_heatmap_gets_its_axes():
     assert heat["rows"] == ["Mon", "Tue"] and heat["cols"] == ["Jan", "Feb"]
 
 
+def test_a_combo_takes_bars_and_a_line_and_a_gantt_takes_dates_as_text():
+    import datetime
+    combo = bind.apply({"kind": "chart", "chart": "combo", "bind": "series"}, result(["month", "Spend", "Invoices"], [["2026-01", 500.0, 7], ["2026-02", 620.0, 9]]))
+    assert combo["labels"] == ["2026-01", "2026-02"]
+    assert combo["bars"] == {"name": "Spend", "values": [500.0, 620.0]} and combo["line"] == {"name": "Invoices", "values": [7, 9]}
+    with pytest.raises(bind.BindError, match="3 columns"):
+        bind.apply({"kind": "chart", "chart": "combo", "bind": "series"}, result(["month", "Spend"], [["2026-01", 5]]))
+    gantt = bind.apply({"kind": "chart", "chart": "gantt", "bind": "rows"}, result(["label", "start", "end"], [["Offsite", datetime.date(2026, 3, 2), datetime.datetime(2026, 3, 6, 9, 0)]]))
+    assert gantt["rows"] == [{"label": "Offsite", "start": "2026-03-02", "end": "2026-03-06"}]
+    for chart in ("small_multiples", "bump"):
+        assert bind.apply({"kind": "chart", "chart": chart, "bind": "series"}, result(["q", "A", "B"], [["Q1", 1, 2]]))["labels"] == ["Q1"]
+
+
+def test_the_real_renderer_draws_every_new_form():
+    from canvas_core import render
+    base = {"kind": "chart", "title": "T", "takeaway": "A finding", "source": "s", "data_through": "2026-11-01"}
+    months, series = ["Jan", "Feb", "Mar"], [{"name": "A", "values": [3, 5, 4]}, {"name": "B", "values": [4, 2, 6]}]
+    forms = {
+        "combo": {"labels": months, "bars": {"name": "Spend", "values": [5, 6, 7]}, "line": {"name": "Count", "values": [2, 1, 3]}, "line_axis": {"format": "integer"}},
+        "small_multiples": {"labels": months, "series": series}, "bump": {"labels": months, "series": series},
+        "bubbles": {"items": [{"label": "a", "value": 5}, {"label": "b", "value": 3}, {"label": "c", "value": 1}]},
+        "gantt": {"rows": [{"label": "One", "start": "2026-01-05", "end": "2026-02-01"}, {"label": "Two", "start": "2026-01-20", "end": "2026-03-01", "group": "g"}]},
+        "strip": {"points": [{"label": "x", "value": v} for v in (1, 2, 3, 4)] + [{"label": "y", "value": 9, "name": "big"}]},
+    }
+    for chart, fields in forms.items():
+        drawn = render.render_block({**base, "chart": chart, **fields})
+        assert drawn["chart"] == chart and "<svg" in drawn["html"] and "<title>" in drawn["html"], chart
+    with pytest.raises(render.Refused, match="ends before"):
+        render.render_block({**base, "chart": "gantt", "rows": [{"label": "a", "start": "2026-02-01", "end": "2026-01-01"}, {"label": "b", "start": "2026-01-01", "end": "2026-01-02"}]})
+
+
 def test_binding_refuses_what_does_not_fit():
     with pytest.raises(bind.BindError, match="no rows"):
         bind.apply({"kind": "chart", "chart": "bar", "bind": "data"}, result(["label", "value"], []))
@@ -159,7 +190,7 @@ def test_an_answer_has_a_small_block_limit(desk):
 
 def test_a_block_changes_form_inside_its_family_and_keeps_its_query(desk):
     make, database, drawn = desk
-    assert tools.family(CHART) == ["bar", "hbar", "pareto", "donut", "treemap", "funnel"]
+    assert tools.family(CHART) == ["bar", "hbar", "pareto", "donut", "treemap", "funnel", "bubbles"]
     filled, rendered = tools.convert(database, dict(CHART, highlight=[0]), "donut")
     assert rendered["chart"] == "donut" and filled["bind"] == "slices" and filled["sql"] == CHART["sql"]
     assert filled["slices"] == [{"label": "Travel", "value": 120.0}, {"label": "Events", "value": 80.0}]
@@ -178,7 +209,7 @@ def test_alternatives_leave_out_the_current_form_and_any_form_the_renderer_refus
             raise tools.render.Refused("pareto needs 3 bars")
         return {"kind": "chart", "chart": spec["chart"], "html": "<section/>"}
     monkeypatch.setattr(tools.render, "render_block", picky)
-    assert tools.alternatives(database, dict(CHART)) == ["bar", "donut", "treemap", "funnel"]
+    assert tools.alternatives(database, dict(CHART)) == ["bar", "donut", "treemap", "funnel", "bubbles"]
 
 
 # ---- the Claude adapter: the transcript the SDK needs -----------------------------------------------------------

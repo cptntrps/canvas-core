@@ -21,8 +21,8 @@ The door runs the query and fills the block. So first run the query with `run_sq
 {{"kind": "table", "title": "Largest lines", "columns": [{{"name": "Date"}}, {{"name": "Vendor"}}, {{"name": "Amount", "format": "usd"}}],
   "sql": "SELECT spent_on, vendor, amount FROM expense_lines ORDER BY amount DESC LIMIT 10", "bind": "rows"}}
 ```
-- `"bind": "<field>"`: each row becomes one object of that list (`data`, `slices`, `items`, `rows`, `stages`, `flows`, `days`, `cells`, `words`, `groups`, `points`), so name the columns as the fields: `label` and `value`; `from`, `to`, `value` for a sankey; `row`, `col`, `value` for a heatmap (the door derives `rows` and `cols`); `date`, `value` for a calendar; `label`, `a`, `b` for slope and dumbbell; `label`, `value`, `target` for a bullet; `label`, `min`, `q1`, `median`, `q3`, `max` for a boxplot.
-- `"bind": "series"` (line, area, stacked_area, grouped): the first column is the label of each point, every other column is one series named by its column alias.
+- `"bind": "<field>"`: each row becomes one object of that list (`data`, `slices`, `items`, `rows`, `stages`, `flows`, `days`, `cells`, `words`, `groups`, `points`), so name the columns as the fields: `label` and `value`; `from`, `to`, `value` for a sankey; `row`, `col`, `value` for a heatmap (the door derives `rows` and `cols`); `date`, `value` for a calendar; `label`, `a`, `b` for slope and dumbbell; `label`, `value`, `target` for a bullet; `label`, `min`, `q1`, `median`, `q3`, `max` for a boxplot; `label`, `start`, `end` (dates) and optional `group` for a gantt (bind `rows`); `label`, `value` and optional `name` for a strip (bind `points`).
+- `"bind": "series"` (line, area, stacked_area, grouped, small_multiples, bump): the first column is the label of each point, every other column is one series named by its column alias. For a `combo` the query returns exactly 3 columns: the label, the bars, the line.
 - A kpi row can carry `label`, `value`, `format`, `delta`, `delta_label`, `good_when`. Join several numbers with UNION ALL, one row each. Compute a change in SQL.
 - A table binds `rows`; you write `columns` yourself, in the order of the query.
 - `data_through` is the newest date behind the numbers. Give it as a date you read with `run_sql`, or give `"through_sql"`: a query that returns that one date (the door then keeps it fresh).
@@ -80,10 +80,16 @@ The door names each group by what sets it apart ("High avg invoice, low invoices
 | a count that shrinks through stages | `funnel` |
 | an amount that flows from sources to destinations (store to category, income to spend) | `sankey` |
 | a relation between two measures | `scatter` (with `trend: true`) |
+| an amount and its count or rate over time (spend and number of invoices, revenue and margin %) | `combo` (bars and a line, two scales) |
+| the same measure over time for 4 to 9 items, where one chart of lines would tangle | `small_multiples` |
+| who leads and who overtook whom over time (the rank matters, not the amount) | `bump` |
+| many items of one kind at a glance, size by value (a first look, not exact reading) | `bubbles` |
+| things with a start and an end date (projects, contracts, trips, campaigns) | `gantt` |
+| every single item as a dot per category (all invoices per department, all trips per person) | `strip` |
 | anything with coordinates (places, a route, where money was spent) | the `map` block |
 | what happened at which hours, day by day (location, sleep, devices on) | the `timeline` block |
 | which words, topics or names carry a body of text (a chat, emails, notes) | `wordcloud` |
-A report never uses the same chart type twice unless the second one has a real reason (`repeat_reason`). Three bar charts in a row is a failure. For a broad question, line + donut + hbar alone is the lazy default: add at least one chart that shows a change, a spread, a flow or a second dimension (waterfall, slope, dumbbell, heatmap, calendar, histogram, boxplot, sankey, stacked_area, diverging or scatter), and run the query it needs (for example month by store, weekday by month, first quarter versus last quarter unit prices).
+A report never uses the same chart type twice unless the second one has a real reason (`repeat_reason`). Three bar charts in a row is a failure. For a broad question, line + donut + hbar alone is the lazy default: add at least one chart that shows a change, a spread, a flow or a second dimension (waterfall, slope, dumbbell, heatmap, calendar, histogram, boxplot, sankey, stacked_area, diverging, combo, bump, strip or scatter), and run the query it needs (for example month by store, weekday by month, first quarter versus last quarter unit prices).
 
 # Blocks (`add_block` takes one JSON object)
 Number formats: `format` is `usd`, `brl`, `number`, `integer` or `percent` (a percent value of 34.2 means 34.2%); optional `decimals` (0 to 3) and `suffix` (" kg", " h"). Send numbers as JSON numbers. `**bold**` works in text.
@@ -128,6 +134,12 @@ Every chart: `{{"kind": "chart", "chart": "<type>", "title": "...", "takeaway": 
 - `sankey`: `"flows": [{{"from": "Costco", "to": "Meat", "value": 2100}}]`; 6 sources and 7 targets at most (group the rest into "Other").
 - `pareto`: `"data": [{{"label": "Salmon", "value": 612}}]`, 3 to 9 bars, labels of 12 characters at most.
 - `wordcloud`: `"words": [{{"text": "churrasco", "value": 48}}]`, 8 to 60 words, each one word or a short name, unique. Count in SQL (split the text to words, lower case, count), and before you send them drop the words that carry no meaning: articles, prepositions, pronouns, common verbs, fillers and laughter in the language of the text (Portuguese: de, que, não, pra, tá, kkk, haha ...; English: the, and, that, just ...), plus numbers, links and names of the chat's members unless the question is about who speaks. A cloud shows what is said, not how often; pair it with a chart that carries the numbers.
+- `combo`: `"labels": ["Jan", "Feb"], "bars": {{"name": "Spend", "values": [690, 720]}}, "line": {{"name": "Orders", "values": [7, 6]}}`, optional `"line_axis": {{"format": "integer"}}` (the format of the line's scale); 2 to 24 labels; `format` applies to the bars.
+- `small_multiples`: `labels` and `series` as for `line`; 2 to 9 series, one small panel each, all on one scale.
+- `bump`: `labels` and `series` as for `line` (the values, not the ranks: the chart ranks them, largest first); 2 to 8 series, 2 to 24 labels.
+- `bubbles`: `"items": [{{"label": "Salmon", "value": 612}}]`, 3 to 24 items.
+- `gantt`: `"rows": [{{"label": "Lisbon", "start": "2026-09-04", "end": "2026-09-13", "group": "Trip"}}]`, 2 to 14 rows in the order to show; `group` is optional and sets the colour (5 groups at most). No `format`.
+- `strip`: `"points": [{{"label": "Costco", "value": 311.6, "name": "Oct 17"}}]`, 5 to 400 points in 8 categories (`label`) at most; `name` is optional and shown on tap. A tick marks each median.
 Charts with labelled points (`line`, `area`, `bar`, `waterfall`) take `"annotations": [{{"index": 9, "text": "peak"}}]` to mark one or two points.
 
 Two more block kinds, for where and when (each needs `title`, `takeaway`, `source`, `sql`, `data_through` like a chart):

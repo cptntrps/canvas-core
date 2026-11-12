@@ -40,7 +40,7 @@ def preview(result: dict, limit: int = 60) -> str:
     return "\n".join(lines) if result["rows"] else "(no rows)"
 
 
-LABEL_VALUE = {"bar": "data", "hbar": "data", "pareto": "data", "donut": "slices", "treemap": "items", "funnel": "stages"}
+LABEL_VALUE = {"bar": "data", "hbar": "data", "pareto": "data", "donut": "slices", "treemap": "items", "funnel": "stages", "bubbles": "items"}
 
 
 def fill(database, spec: dict) -> dict:
@@ -81,7 +81,7 @@ def draw(spec: dict) -> dict:
 
 # Charts that draw the same rows. A block can change form inside its family with no model: the query stays, the
 # door fills the new form and draws it.
-SERIES = ("line", "area", "stacked_area", "grouped")
+SERIES = ("line", "area", "stacked_area", "grouped", "small_multiples", "bump")
 COMMON = ("kind", "chart", "title", "takeaway", "unit", "source", "sql", "bind", "data_through", "through_sql", "format", "decimals", "suffix", "repeat_reason")
 
 
@@ -187,7 +187,7 @@ class Tools:
         kinds = store.chart_kinds(self.rid)
         if self.mode == "report" and len(kinds) >= 3 and set(kinds) <= BASIC and not store.refused_before(self.rid, "finish", VARIETY):
             raise Refused(f"{VARIETY} ({', '.join(kinds)}). Add one chart that shows a change, a spread, a flow or a second dimension "
-                          "(waterfall, heatmap, pareto, treemap, boxplot, sankey, stacked_area, slope), then call finish again.")
+                          "(waterfall, heatmap, pareto, treemap, boxplot, sankey, stacked_area, slope, combo, bump, small_multiples, strip), then call finish again.")
         if not store.finish(self.rid, "ok", suggestions=suggestions):
             raise store.Closed("the report is closed")
         return "ok: the report is closed. Stop now."
