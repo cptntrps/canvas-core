@@ -43,6 +43,15 @@ def preview(result: dict, limit: int = 60) -> str:
 LABEL_VALUE = {"bar": "data", "hbar": "data", "pareto": "data", "donut": "slices", "treemap": "items", "funnel": "stages", "bubbles": "items"}
 
 
+LABEL_MAX = {"bar": 14, "hbar": 40, "pareto": 12, "donut": 20, "treemap": 24, "bubbles": 24, "funnel": 28}
+
+
+def _short(rows: list[dict], chart: str) -> list[dict]:
+    """Group names cut to what the chart's labels hold, so a long name never refuses the block."""
+    limit = LABEL_MAX.get(chart, 20)
+    return [{**r, "label": r["label"] if len(r["label"]) <= limit else r["label"][:limit - 1] + "…"} for r in rows]
+
+
 def fill(database, spec: dict) -> dict:
     """The spec with its data placed from its query. A block without bind is returned as it is."""
     if not spec.get("bind"):
@@ -63,8 +72,8 @@ def fill(database, spec: dict) -> dict:
                 out["rows"] = cluster.profile_rows(found, names)
             else:
                 if spec.get("chart") not in LABEL_VALUE:
-                    raise Refused('"bind": "cluster_sizes" draws the size of each group as hbar, bar, donut or treemap')
-                out[LABEL_VALUE[spec["chart"]]] = cluster.size_rows(found, names)
+                    raise Refused('"bind": "cluster_sizes" draws the size of each group as hbar, bar, donut, treemap or bubbles')
+                out[LABEL_VALUE[spec["chart"]]] = _short(cluster.size_rows(found, names), spec["chart"])
             return out
         return bind.apply(spec, result)
     except (QueryRefused, bind.BindError, cluster.ClusterError) as exc:

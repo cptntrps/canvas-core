@@ -41,7 +41,7 @@ const AXIS = 'var(--chart-axis-text,#6f7980)';
 const INK = 'var(--chart-ink,#141716)';
 const TGT = 'var(--chart-target,#c0392b)';
 const PALETTE = ['var(--chart-1,#2a78d6)', 'var(--chart-2,#0ca37a)', 'var(--chart-3,#8d5bd6)',
-  'var(--chart-4,#d98500)', 'var(--chart-5,#d03b3b)'];
+  'var(--chart-4,#d98500)', 'var(--chart-5,#d03b3b)', 'var(--chart-6,#5c6b73)'];
 export const palette = i => PALETTE[i % PALETTE.length];
 
 // Axis-style text. `extra` holds attribute overrides (fill, font-size, font-weight);
