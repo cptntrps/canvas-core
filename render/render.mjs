@@ -32,7 +32,7 @@ function list(o, k, { min = 1, max, path = '', hint = '' } = {}) {
   const v = o[k];
   if (!Array.isArray(v)) fail(`${path}${k} must be a list`);
   if (v.length < min) fail(`${path}${k} needs at least ${min} item${min > 1 ? 's' : ''}; it has ${v.length}`);
-  if (max != null && v.length > max) fail(`${path}${k} has ${v.length} items; the limit on a phone is ${max}.${hint ? ' ' + hint : ''}`);
+  if (max != null && v.length > max) fail(`${path}${k} has ${v.length} items; the limit is ${max}.${hint ? ' ' + hint : ''}`);
   return v;
 }
 function oneOf(o, k, allowed, { optional = false, path = '' } = {}) {
@@ -153,12 +153,12 @@ function insight(b) {
 
 function table(b) {
   known(b, ['kind', 'title', 'columns', 'rows', 'data_through'], 'table');
-  const cols = list(b, 'columns', { max: 4, hint: 'A phone shows 4 columns at most.' }).map((c, i) => {
+  const cols = list(b, 'columns', { max: 8, hint: 'Keep the 8 columns that matter most.' }).map((c, i) => {
     if (!isObj(c)) fail(`columns[${i}] must be an object {name, format?}`);
     known(c, ['name', 'format', 'decimals', 'suffix'], `table column ${i}`);
     return { name: str(c, 'name', { max: 18, path: `columns[${i}].` }), numeric: c.format != null, f: c.format != null ? formatter(fmtFields(c, `columns[${i}].`)) : null };
   });
-  const rows = list(b, 'rows', { max: 12, hint: 'Show the top rows and say how many remain in an insight.' });
+  const rows = list(b, 'rows', { max: 20, hint: 'Show the top rows and say how many remain in an insight.' });
   const body = rows.map((r, i) => {
     if (!Array.isArray(r) || r.length !== cols.length) fail(`rows[${i}] must be a list of ${cols.length} values, one per column`);
     return '<tr>' + r.map((v, j) => {
@@ -275,15 +275,15 @@ const BUILD = {
     return C.heatmap({ rows, cols, cells, width: WIDTH, fmtY: formatter(f, { compact: true, values: cells.map(c => c.value) }), label: b.title });
   },
   scatter(b, f) {
-    const xf = isObj(b.x) ? b.x : {}, groups = list(b, 'groups', { max: 3 }).map((g, i) => {
+    const xf = isObj(b.x) ? b.x : {}, groups = list(b, 'groups', { max: 6 }).map((g, i) => {
       if (!isObj(g)) fail(`groups[${i}] must be an object {name, points}`);
-      const points = list(g, 'points', { min: 3, max: 300, path: `groups[${i}].` }).map((p, j) => {
+      const points = list(g, 'points', { min: 1, max: 300, path: `groups[${i}].` }).map((p, j) => {
         if (!isObj(p)) fail(`groups[${i}].points[${j}] must be an object {x, y}`);
         const x = num(p, 'x', { path: `groups[${i}].points[${j}].` }), y = num(p, 'y', { path: `groups[${i}].points[${j}].` });
         if (x < 0 || y < 0) fail(`groups[${i}].points[${j}] is negative; the scatter axes start at zero`);
         return { x, y, tip: p.label != null ? String(p.label).slice(0, 60) : undefined };
       });
-      const out = { name: str(g, 'name', { max: 22, path: `groups[${i}].` }), points };
+      const out = { name: str(g, 'name', { max: 40, path: `groups[${i}].` }), points };
       if (b.trend === true) {                       // least-squares line, drawn over the x range of the group
         const n = points.length, mx = points.reduce((a, p) => a + p.x, 0) / n, my = points.reduce((a, p) => a + p.y, 0) / n;
         const sxx = points.reduce((a, p) => a + (p.x - mx) ** 2, 0), sxy = points.reduce((a, p) => a + (p.x - mx) * (p.y - my), 0);

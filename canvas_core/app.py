@@ -6,7 +6,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request
 
-from . import agent, config, render, store, tools
+from . import agent, config, layouts, render, store, tools
 from .db import MySQL
 
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -32,6 +32,10 @@ def create_app(settings=None, database=None) -> Flask:
     def health():
         return jsonify({"status": "ok", "name": settings.name})
 
+    @app.get("/api/layouts")
+    def dashboard_layouts():
+        return jsonify({"layouts": layouts.names()})
+
     @app.get("/api/reports")
     def reports():
         return jsonify({"reports": store.list_reports()})
@@ -49,6 +53,8 @@ def create_app(settings=None, database=None) -> Flask:
         if parent:
             context = (f"This follows an earlier page. Its request was: {parent['question']}\nIts title was: {parent['title'] or ''}\n"
                        "Answer the new request; do not repeat the earlier page.\n\n")
+        if mode == "dashboard":
+            context += layouts.instruction(body.get("layout"))
         rid = store.create_report(question[:2000], mode, parent["id"] if parent else None)
         agent.start(settings, database, rid, question[:2000], mode, context)
         return jsonify({"id": rid}), 201

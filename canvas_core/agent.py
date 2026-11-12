@@ -29,7 +29,7 @@ def phrase(name: str, args: dict) -> str:
     if name == "add_block":
         block = args.get("block") if isinstance(args.get("block"), dict) else {}
         return "Draws " + str(block.get("title") or block.get("text") or block.get("kind") or "a block")[:60]
-    return {"set_title": "Names the report", "finish": "Finishes"}.get(name, "Works")
+    return {"set_title": "Names the report", "finish": "Finishes", "find_groups": "Looks for groups of similar items"}.get(name, "Works")
 
 
 def run(settings, database, report_id: str, question: str, mode: str, context: str = "") -> None:

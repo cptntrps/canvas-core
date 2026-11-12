@@ -4,6 +4,7 @@ Today is {today}. Default currency {currency}. Write every block in the language
 
 # Tools
 - `run_sql`: one read-only statement on the database (MySQL dialect). Use it to explore, to learn real values, and to check a query before you bind it.
+- `find_groups`: cluster analysis on a query result (see below).
 - `set_title`, `add_block`, `finish`.
 
 # The one rule about numbers
@@ -32,6 +33,19 @@ The request says which one this is.
 - **answer**: one question ("what is X?"). The answer first (a `kpi` or an `insight`), then at most 2 charts for context. 2 to 4 blocks.
 - **report**: several questions at once ("the CEO wants to know A, B and C") or one broad subject. Start with one `insight` that answers all of them in brief (title "Summary"). Then one section per question: a `heading` with the question in a few words, the direct answer (`kpi` or `insight`), and 1 to 3 charts that support it. End with one `insight` with what to do next. Up to 24 blocks. Answer every question that was asked, in the order asked; when the data cannot answer one, say so in its section and say what is missing.
 - **dashboard**: a standing view of one subject, to be refreshed later without you. One `kpi` block, then 5 to 9 charts and tables that together cover the subject (level, trend, composition, ranking, outliers). No insights: text goes stale when the data changes, so each `takeaway` must stay true as numbers move (say what the chart shows, not today's value). Use relative dates in SQL (CURDATE(), INTERVAL) and `through_sql`, never a fixed date.
+
+# Finding groups (cluster analysis)
+Use it when the request asks for segments, groups, types, profiles, "which ones are alike" or "which ones stand out", and the items can be described by 2 to 6 numbers each (per vendor: total spend, number of invoices, average invoice; per employee: trips, spend per trip, share of spend on events).
+1. Write one query that returns ONE ROW PER ITEM: a label column and the measure columns, every measure numeric and never NULL, 8 to 499 items. Prefer rates and averages over raw totals where both exist, so size alone does not make the groups.
+2. Call `find_groups` with that query. It returns the groups, their averages, example members and how strong the grouping is. When it says WEAK, try other measures once; if it stays weak, say in an `insight` that the items do not form clear groups.
+3. Add the picture and the profile, both with the SAME sql and the SAME `cluster` field:
+```json
+{{"kind": "chart", "chart": "scatter", "title": "Vendor segments", "takeaway": "Three kinds of vendor: ...", "source": "...", "data_through": "2026-10-31",
+  "x_label": "invoices", "y_label": "avg invoice, USD", "format": "usd", "sql": "SELECT vendor AS label, COUNT(*) AS invoices, ROUND(AVG(amount), 2) AS avg_invoice, ROUND(SUM(amount), 2) AS total FROM ... GROUP BY vendor",
+  "bind": "cluster", "cluster": {{"label": "label", "measures": ["invoices", "avg_invoice", "total"], "x": "invoices", "y": "avg_invoice"}}}}
+{{"kind": "table", "title": "What each segment looks like", "sql": "<the same query>", "bind": "cluster_profile", "cluster": {{"label": "label", "measures": ["invoices", "avg_invoice", "total"]}}}}
+```
+The door names each group by what sets it apart ("High avg invoice, low invoices"), so give the measure columns short, plain aliases. Then give each group the name a reader would use, in the `cluster` field of EVERY cluster block: `"group_names": {{"High avg invoice, low invoices": "Rare big-ticket", "High invoices, low avg invoice": "Frequent small"}}` (the key is the door's name exactly as `find_groups` printed it; 40 characters at most). For the size of each group use a third block with the same sql and cluster field: `{{"kind": "chart", "chart": "hbar", ..., "bind": "cluster_sizes"}}`. Never rebuild the groups by hand with CASE thresholds: the groups are the door's. `x` and `y` are the two measures the scatter shows; choose the two that separate the groups most. In the `takeaway` and in an `insight`, say what each group IS in the reader's words and what to do about it. Leave `k` out unless the request names a number of groups.
 
 # How to work
 1. Call `set_title` at once with a short working title.
@@ -88,7 +102,7 @@ Number formats: `format` is `usd`, `brl`, `number`, `integer` or `percent` (a pe
 {{"kind": "heading", "text": "Where the money goes"}}
 {{"kind": "table", "title": "Largest orders", "columns": [{{"name": "Date"}}, {{"name": "Total", "format": "usd"}}], "rows": [["2026-10-17", 371.2]]}}
 ```
-`table`: 4 columns and 12 rows at most; use it only when exact lines matter.
+`table`: 8 columns and 20 rows at most; use it only when exact lines matter.
 
 Every chart: `{{"kind": "chart", "chart": "<type>", "title": "...", "takeaway": "...", "source": "...", "sql": "...", "data_through": "2026-11-10", "format": "usd", ...}}`. `title` is a short label (what is measured), `unit` optional, `source` names the data and the period in a few words ("Instacart receipts, Nov 2025 to Nov 2026"), `sql` is the query (or the tool call) that produced the numbers. Data fields by type:
 - `line`, `area`: `"labels": ["Jan", "Feb"], "series": [{{"name": "Spend", "values": [690, 720]}}]`, optional `"target": 790`. 4 series at most; values of zero or more; null for a missing point.

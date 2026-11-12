@@ -11,6 +11,15 @@ Three kinds of request:
 | Report | Several questions at once: "The CEO wants to know A, B and C" | A summary, one section per question, a next step |
 | Dashboard | A standing view of one subject | A grid of numbers and charts that you refresh without the AI |
 
+## Cluster analysis and dashboard layouts
+
+- **Segments:** ask "which kinds of vendors do we have?" or "find the groups of similar employees". The app groups
+  the items by 2 to 6 measures with k-means, picks the number of groups from the data, and draws a scatter coloured
+  by group, a table that describes each group, and the size of each group. The grouping is done by code, so the same
+  data always gives the same groups. It scores how well the groups separate and says so when they are weak.
+- **Dashboard layouts:** when you ask for a dashboard you can pick a layout: Executive overview, Trend and breakdown,
+  Plan against actual, Ranking and concentration, or Segments. "Auto" lets the app choose by the subject.
+
 ## Working with a page
 
 - **Other chart:** on any chart, see the same query in another form (bar, donut, treemap, line, area, ...). Only
@@ -151,6 +160,8 @@ and `sample/glossary.md` is its glossary. Use it to try the app before you point
 | `canvas_core/tools.py` | The four tools and the rules (numbers from queries, chart variety, limits, chart forms) |
 | `canvas_core/db.py` | The read-only MySQL tool and the schema catalog |
 | `canvas_core/bind.py` | Query rows to block data |
+| `canvas_core/cluster.py` | Cluster analysis in plain code |
+| `canvas_core/layouts.py` | The dashboard layouts |
 | `canvas_core/models.py` | The model adapters: Claude (official SDK) and chat completions |
 | `canvas_core/check.py` | The installation check |
 | `canvas_core/store.py` | Reports and blocks in one SQLite file |

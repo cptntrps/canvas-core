@@ -2,7 +2,7 @@
 tells the model what to change. The rules are code, so a model cannot talk its way past them."""
 from __future__ import annotations
 
-from . import bind, render, store
+from . import bind, cluster, render, store
 from .db import QueryRefused
 
 MAX_BLOCKS = {"answer": 5, "report": 24, "dashboard": 12}
@@ -22,6 +22,8 @@ SCHEMAS = [
      "parameters": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
     {"name": "add_block", "description": "Add one block to the report. A block that shows data carries \"sql\" and \"bind\": the door runs the query and fills the data itself.",
      "parameters": {"type": "object", "properties": {"block": {"type": "object"}}, "required": ["block"]}},
+    {"name": "find_groups", "description": "Cluster analysis: find groups of items that are alike on 2 to 6 measures. The query returns one row per item (a label column and the measure columns). You get the groups, their averages, example members and how strong the grouping is. Call it before you add a cluster block, so you can say what each group is.",
+     "parameters": {"type": "object", "properties": {"sql": {"type": "string"}, "label": {"type": "string"}, "measures": {"type": "array", "items": {"type": "string"}}, "k": {"type": "integer"}}, "required": ["sql", "label", "measures"]}},
     {"name": "finish", "description": "Close the report with 3 short follow-up questions.",
      "parameters": {"type": "object", "properties": {"suggestions": {"type": "array", "items": {"type": "string"}}}, "required": ["suggestions"]}},
 ]
@@ -38,6 +40,9 @@ def preview(result: dict, limit: int = 60) -> str:
     return "\n".join(lines) if result["rows"] else "(no rows)"
 
 
+LABEL_VALUE = {"bar": "data", "hbar": "data", "pareto": "data", "donut": "slices", "treemap": "items", "funnel": "stages"}
+
+
 def fill(database, spec: dict) -> dict:
     """The spec with its data placed from its query. A block without bind is returned as it is."""
     if not spec.get("bind"):
@@ -45,13 +50,29 @@ def fill(database, spec: dict) -> dict:
     if not isinstance(spec.get("sql"), str) or not spec["sql"].strip():
         raise Refused('"bind" needs "sql": the query whose rows fill the block')
     try:
-        return bind.apply(spec, database.run(spec["sql"]))
-    except (QueryRefused, bind.BindError) as exc:
+        result = database.run(spec["sql"])
+        if spec["bind"] in ("cluster", "cluster_profile", "cluster_sizes"):
+            found = cluster.from_result(result, spec)
+            ask, out = spec["cluster"], dict(spec)
+            names = cluster.display_names(found, ask)
+            if spec["bind"] == "cluster":
+                out["groups"] = cluster.scatter_groups(found, result, ask.get("x", found["measures"][0]), ask.get("y", found["measures"][1]), names)
+            elif spec["bind"] == "cluster_profile":
+                out.setdefault("columns", [{"name": "Group"}, {"name": "Items", "format": "integer"}]
+                               + [{"name": m.replace("_", " ")[:14], "format": "number"} for m in found["measures"]])
+                out["rows"] = cluster.profile_rows(found, names)
+            else:
+                if spec.get("chart") not in LABEL_VALUE:
+                    raise Refused('"bind": "cluster_sizes" draws the size of each group as hbar, bar, donut or treemap')
+                out[LABEL_VALUE[spec["chart"]]] = cluster.size_rows(found, names)
+            return out
+        return bind.apply(spec, result)
+    except (QueryRefused, bind.BindError, cluster.ClusterError) as exc:
         raise Refused(str(exc)) from exc
 
 
 def draw(spec: dict) -> dict:
-    drawn = {k: v for k, v in spec.items() if k not in ("sql", "bind", "repeat_reason")}
+    drawn = {k: v for k, v in spec.items() if k not in ("sql", "bind", "repeat_reason", "cluster", "through_sql")}
     try:
         return render.render_block(drawn)
     except render.Refused as exc:
@@ -60,15 +81,14 @@ def draw(spec: dict) -> dict:
 
 # Charts that draw the same rows. A block can change form inside its family with no model: the query stays, the
 # door fills the new form and draws it.
-LABEL_VALUE = {"bar": "data", "hbar": "data", "pareto": "data", "donut": "slices", "treemap": "items", "funnel": "stages"}
 SERIES = ("line", "area", "stacked_area", "grouped")
 COMMON = ("kind", "chart", "title", "takeaway", "unit", "source", "sql", "bind", "data_through", "through_sql", "format", "decimals", "suffix", "repeat_reason")
 
 
 def family(spec: dict) -> list[str]:
     chart = spec.get("chart")
-    if spec.get("kind") != "chart" or not spec.get("bind"):
-        return []
+    if spec.get("kind") != "chart" or not spec.get("bind") or str(spec.get("bind")).startswith("cluster"):
+        return []          # a cluster view keeps its form: its data comes from the grouping, not straight from the rows
     if chart in LABEL_VALUE:
         return list(LABEL_VALUE)
     return list(SERIES) if chart in SERIES else []
@@ -104,7 +124,8 @@ class Tools:
         self.db, self.rid, self.mode = database, report_id, mode
 
     def call(self, name: str, args: dict) -> str:
-        handler = {"run_sql": self.run_sql, "set_title": self.set_title, "add_block": self.add_block, "finish": self.finish}.get(name)
+        handler = {"run_sql": self.run_sql, "set_title": self.set_title, "add_block": self.add_block, "finish": self.finish,
+                   "find_groups": self.find_groups}.get(name)
         if handler is None:
             return f"REFUSED: there is no tool named {name}"
         try:
@@ -119,6 +140,13 @@ class Tools:
         try:
             return preview(self.db.run(args.get("query", "")))
         except QueryRefused as exc:
+            raise Refused(str(exc)) from exc
+
+    def find_groups(self, args: dict) -> str:
+        spec = {"cluster": {"label": args.get("label"), "measures": args.get("measures"), **({"k": args["k"]} if args.get("k") is not None else {})}}
+        try:
+            return cluster.describe(cluster.from_result(self.db.run(args.get("sql", "")), spec))
+        except (QueryRefused, cluster.ClusterError) as exc:
             raise Refused(str(exc)) from exc
 
     def set_title(self, args: dict) -> str:

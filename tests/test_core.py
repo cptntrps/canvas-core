@@ -242,3 +242,121 @@ def test_a_refusal_and_a_cut_answer_are_errors_with_words(monkeypatch):
     model.user("go")
     with pytest.raises(models.ModelError, match="max_tokens"):
         model.step()
+
+
+# ---- cluster analysis --------------------------------------------------------------------------------------------
+
+import random as _random
+
+from canvas_core import cluster, layouts
+
+
+def _blobs(seed=3, per=20, centres=((10, 100000), (60, 110000), (35, 900000))):
+    rng = _random.Random(seed)
+    labels, rows = [], []
+    for c, (x, y) in enumerate(centres):
+        for i in range(per):
+            labels.append(f"item{c}_{i}")
+            rows.append([x + rng.gauss(0, 3), y + rng.gauss(0, 20000)])
+    return labels, rows
+
+
+def test_three_planted_groups_are_found_with_no_k_given():
+    labels, rows = _blobs()
+    found = cluster.analyse(labels, rows, ["trips", "spend"])
+    assert found["k"] == 3 and [g["items"] for g in found["groups"]] == [20, 20, 20]
+    assert found["explained"] > 0.9 and found["silhouette"] > 0.7 and not found["weak"]
+    for g in found["groups"]:
+        assert len({labels[i].split("_")[0] for i in g["members"]}) == 1, "each found group is one planted group"
+
+
+def test_a_measure_in_large_units_does_not_outweigh_one_in_small_units():
+    # The groups differ ONLY in trips (10 against 60). Spend is noise in the hundreds of thousands.
+    rng = _random.Random(5)
+    rows = [[10 + rng.gauss(0, 2), 500000 + rng.gauss(0, 40000)] for _ in range(25)] + [[60 + rng.gauss(0, 2), 500000 + rng.gauss(0, 40000)] for _ in range(25)]
+    found = cluster.analyse([f"i{i}" for i in range(50)], rows, ["trips", "spend"], k=2)
+    assert [g["items"] for g in found["groups"]] == [25, 25]
+    assert found["separation"][0]["measure"] == "trips" and found["separation"][0]["explained"] > 0.9
+
+
+def test_the_same_rows_give_the_same_groups_and_names_say_what_sets_a_group_apart():
+    labels, rows = _blobs()
+    a, b = cluster.analyse(labels, rows, ["trips", "spend"]), cluster.analyse(labels, rows, ["trips", "spend"])
+    assert a["assign"] == b["assign"] and [g["name"] for g in a["groups"]] == [g["name"] for g in b["groups"]]
+    names = [g["name"] for g in a["groups"]]
+    assert len(set(names)) == 3 and any("spend" in n and n.startswith("High") for n in names)
+    text = cluster.describe(a)
+    assert text.startswith("3 groups among 60 items") and "What separates the groups most" in text
+
+
+def test_items_with_no_structure_are_reported_as_weak():
+    rng = _random.Random(9)
+    found = cluster.analyse([f"i{i}" for i in range(80)], [[rng.random(), rng.random(), rng.random()] for _ in range(80)], ["a", "b", "c"])
+    assert found["silhouette"] < 0.4 and found["weak"] and "WEAK" in cluster.describe(found)
+    assert found["explained"] > 0.5, "variation explained looks good even here, which is why it is not the test"
+
+
+@pytest.mark.parametrize("labels,rows,measures,k,words", [
+    (["a"] * 5, [[1, 2]] * 5, ["x", "y"], None, "only 5 items"),
+    (["a"] * 12, [[i, 2] for i in range(12)], ["x", "y"], None, "same value"),
+    (["a"] * 12, [[i, None] for i in range(12)], ["x", "y"], None, "not a number"),
+    (["a"] * 12, [[i, i * 2] for i in range(12)], ["x"], None, "2 to 6 measures"),
+    (["a"] * 12, [[i, i * 2] for i in range(12)], ["x", "y"], 9, "k must be"),
+    (["a"] * 12, [[i, i * 2] for i in range(12)], ["x", "y"], 5, "too few"),
+])
+def test_what_cannot_be_grouped_is_refused_with_the_reason(labels, rows, measures, k, words):
+    with pytest.raises(cluster.ClusterError, match=words):
+        cluster.analyse(labels, [r[:len(measures)] for r in rows], measures, k)
+
+
+class ClusterDB:
+    def run(self, query, max_rows=500):
+        labels, rows = _blobs()
+        return {"columns": ["label", "trips", "spend"], "rows": [[l, *r] for l, r in zip(labels, rows)], "truncated": False}
+
+
+def test_a_cluster_block_and_its_profile_are_filled_by_the_door(desk):
+    ask = {"label": "label", "measures": ["trips", "spend"], "x": "trips", "y": "spend"}
+    scatter = tools.fill(ClusterDB(), {"kind": "chart", "chart": "scatter", "takeaway": "three kinds", "sql": "SELECT ...", "bind": "cluster", "cluster": ask})
+    assert len(scatter["groups"]) == 3 and sum(len(g["points"]) for g in scatter["groups"]) == 60
+    assert all(len(g["name"]) <= 22 and set(g["points"][0]) == {"x", "y", "label"} for g in scatter["groups"])
+    table = tools.fill(ClusterDB(), {"kind": "table", "title": "Profiles", "sql": "SELECT ...", "bind": "cluster_profile", "cluster": ask})
+    assert [c["name"] for c in table["columns"]] == ["Group", "Items", "trips", "spend"] and len(table["rows"]) == 3 and table["rows"][0][1] == 20
+    make, _, drawn = desk
+    assert "cluster" not in tools.draw(scatter) and "cluster" not in drawn[-1], "the cluster settings are not sent to the renderer"
+    with pytest.raises(tools.Refused, match="not a column"):
+        tools.fill(ClusterDB(), {"kind": "chart", "chart": "scatter", "sql": "SELECT ...", "bind": "cluster", "cluster": {"label": "nope", "measures": ["trips", "spend"]}})
+
+
+def test_find_groups_tells_the_model_what_the_groups_are(desk):
+    make, _, _ = desk
+    t, _ = make()
+    t.db = ClusterDB()
+    text = t.call("find_groups", {"sql": "SELECT ...", "label": "label", "measures": ["trips", "spend"]})
+    assert text.startswith("3 groups among 60 items") and "for example item" in text
+    assert "REFUSED" in t.call("find_groups", {"sql": "SELECT ...", "label": "label", "measures": ["trips"]})
+
+
+def test_a_dashboard_layout_is_named_or_left_to_the_agent():
+    assert "Plan against actual" in layouts.instruction("plan") and "bullet" in layouts.instruction("plan")
+    auto = layouts.instruction(None)
+    assert all(name in auto for name, _, _ in layouts.LAYOUTS.values())
+    assert [l["key"] for l in layouts.names()] == ["overview", "trend", "plan", "ranking", "segments"]
+
+
+def test_group_names_follow_the_group_and_not_its_position(desk):
+    labels, rows = _blobs()
+    found = cluster.analyse(labels, rows, ["trips", "spend"])
+    own = [g["name"] for g in found["groups"]]
+    assert all("_" not in n for n in own)
+    ask = {"label": "label", "measures": ["trips", "spend"], "x": "trips", "y": "spend", "group_names": {own[1]: "Road warriors", "A name of no group": "Ghost"}}
+    assert cluster.display_names(found, ask) == [own[0], "Road warriors", own[2]]
+    scatter = tools.fill(ClusterDB(), {"kind": "chart", "chart": "scatter", "sql": "SELECT ...", "bind": "cluster", "cluster": ask})
+    assert [g["name"] for g in scatter["groups"]] == [own[0], "Road warriors", own[2]]
+    sizes = tools.fill(ClusterDB(), {"kind": "chart", "chart": "hbar", "sql": "SELECT ...", "bind": "cluster_sizes", "cluster": ask})
+    assert sizes["data"] == [{"label": own[0], "value": 20}, {"label": "Road warriors", "value": 20}, {"label": own[2], "value": 20}]
+    donut = tools.fill(ClusterDB(), {"kind": "chart", "chart": "donut", "sql": "SELECT ...", "bind": "cluster_sizes", "cluster": ask})
+    assert len(donut["slices"]) == 3
+    with pytest.raises(tools.Refused, match="cluster_sizes"):
+        tools.fill(ClusterDB(), {"kind": "chart", "chart": "line", "sql": "SELECT ...", "bind": "cluster_sizes", "cluster": ask})
+    assert tools.family({"kind": "chart", "chart": "hbar", "bind": "cluster_sizes"}) == [], "a cluster view does not change form"
