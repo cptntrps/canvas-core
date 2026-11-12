@@ -58,6 +58,47 @@ def draw(spec: dict) -> dict:
         raise Refused(str(exc)) from exc
 
 
+# Charts that draw the same rows. A block can change form inside its family with no model: the query stays, the
+# door fills the new form and draws it.
+LABEL_VALUE = {"bar": "data", "hbar": "data", "pareto": "data", "donut": "slices", "treemap": "items", "funnel": "stages"}
+SERIES = ("line", "area", "stacked_area", "grouped")
+COMMON = ("kind", "chart", "title", "takeaway", "unit", "source", "sql", "bind", "data_through", "through_sql", "format", "decimals", "suffix", "repeat_reason")
+
+
+def family(spec: dict) -> list[str]:
+    chart = spec.get("chart")
+    if spec.get("kind") != "chart" or not spec.get("bind"):
+        return []
+    if chart in LABEL_VALUE:
+        return list(LABEL_VALUE)
+    return list(SERIES) if chart in SERIES else []
+
+
+def convert(database, spec: dict, chart: str) -> tuple[dict, dict]:
+    """(filled spec, drawing) of the same block as another chart of its family. Raises Refused when it does not fit."""
+    if chart not in family(spec):
+        raise Refused(f"this block cannot be drawn as {chart}")
+    base = {k: v for k, v in spec.items() if k in COMMON}
+    base["chart"] = chart
+    base["bind"] = LABEL_VALUE[chart] if chart in LABEL_VALUE else "series"
+    filled = fill(database, base)
+    return filled, draw(filled)
+
+
+def alternatives(database, spec: dict) -> list[str]:
+    """The other forms this block can take, tried for real: a form the renderer refuses for this data is left out."""
+    out = []
+    for chart in family(spec):
+        if chart == spec.get("chart"):
+            continue
+        try:
+            convert(database, spec, chart)
+            out.append(chart)
+        except Refused:
+            continue
+    return out
+
+
 class Tools:
     def __init__(self, database, report_id: str, mode: str):
         self.db, self.rid, self.mode = database, report_id, mode

@@ -75,6 +75,50 @@ def create_app(settings=None, database=None) -> Flask:
         store.delete_report(rid)
         return jsonify({"result": "deleted"})
 
+    @app.get("/api/reports/<rid>/blocks/<int:seq>/alternatives")
+    def block_alternatives(rid, seq):
+        spec = store.get_block(rid, seq)
+        if spec is None:
+            return jsonify({"error": "no such block"}), 404
+        return jsonify({"current": spec.get("chart"), "alternatives": tools.alternatives(database, spec)})
+
+    @app.post("/api/reports/<rid>/blocks/<int:seq>/chart")
+    def block_chart(rid, seq):
+        """Draw the same query as another chart form. No model is called."""
+        spec = store.get_block(rid, seq)
+        if spec is None:
+            return jsonify({"error": "no such block"}), 404
+        try:
+            filled, rendered = tools.convert(database, spec, str((request.get_json(silent=True) or {}).get("chart")))
+        except tools.Refused as exc:
+            return jsonify({"error": str(exc)}), 422
+        store.set_block(rid, seq, filled, rendered)
+        return jsonify({"result": "ok", "chart": rendered["chart"]})
+
+    @app.delete("/api/reports/<rid>/blocks/<int:seq>")
+    def block_delete(rid, seq):
+        store.delete_block(rid, seq)
+        return jsonify({"result": "deleted"})
+
+    @app.post("/api/reports/<rid>/extend")
+    def extend(rid):
+        """Add to a page that exists: the agent sees what is on it and adds only what is asked."""
+        found = store.get_report(rid, with_spec=True)
+        question = " ".join(str((request.get_json(silent=True) or {}).get("question") or "").split())
+        if found is None:
+            return jsonify({"error": "no such report"}), 404
+        if len(question) < 3:
+            return jsonify({"error": "the request is empty"}), 400
+        if not store.reopen(rid):
+            return jsonify({"error": "the report still runs"}), 409
+        have = "\n".join(f"- block {b['seq']}: {b['kind']}{' ' + b['chart'] if b['chart'] else ''}: {b['spec'].get('title') or b['spec'].get('text') or ''}"
+                         f"{' | sql: ' + b['spec']['sql'] if b['spec'].get('sql') else ''}" for b in found["blocks"])
+        context = (f"This page exists already. Its request was: {found['question']}\nIt has these blocks:\n{have}\n\n"
+                   "The person now asks to ADD to this page. Add only the new blocks that the request needs (1 to 3), in the style of the page. "
+                   "Do not repeat a block that exists, do not call set_title, and call finish when the new blocks are on the page.\n\n")
+        agent.start(settings, database, rid, question[:2000], found["mode"], context)
+        return jsonify({"id": rid}), 202
+
     @app.post("/api/reports/<rid>/refresh")
     def refresh(rid):
         """Run each block's own query again and draw it with the new rows. No model is called."""

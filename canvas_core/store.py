@@ -127,6 +127,32 @@ def replace_block(rid: str, seq: int, spec: dict | None, html: str | None, error
         db.execute("UPDATE report SET rev = rev + 1, refreshed_at = ? WHERE id = ?", (now(), rid))
 
 
+def get_block(rid: str, seq: int) -> dict | None:
+    with tx() as db:
+        row = db.execute("SELECT spec FROM block WHERE report_id = ? AND seq = ?", (rid, seq)).fetchone()
+        return json.loads(row["spec"]) if row else None
+
+
+def set_block(rid: str, seq: int, spec: dict, rendered: dict) -> None:
+    with tx() as db:
+        db.execute("UPDATE block SET spec = ?, html = ?, kind = ?, chart = ?, refresh_error = NULL WHERE report_id = ? AND seq = ?",
+                   (json.dumps(spec), rendered["html"], rendered["kind"], rendered["chart"], rid, seq))
+        db.execute("UPDATE report SET rev = rev + 1 WHERE id = ?", (rid,))
+
+
+def delete_block(rid: str, seq: int) -> None:
+    with tx() as db:
+        db.execute("DELETE FROM block WHERE report_id = ? AND seq = ?", (rid, seq))
+        db.execute("UPDATE report SET rev = rev + 1 WHERE id = ?", (rid,))
+
+
+def reopen(rid: str) -> bool:
+    """A finished page takes more blocks again (the person asked to add to it)."""
+    with tx() as db:
+        done = db.execute("UPDATE report SET status = 'running', error = NULL, activity = 'Starts', rev = rev + 1 WHERE id = ? AND status <> 'running'", (rid,))
+        return done.rowcount == 1
+
+
 def finish(rid: str, status: str, error: str | None = None, suggestions: list[str] | None = None) -> bool:
     with tx() as db:
         done = db.execute("UPDATE report SET status = ?, error = ?, suggestions = ?, activity = NULL, finished_at = ?, rev = rev + 1 "

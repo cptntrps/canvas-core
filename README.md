@@ -11,6 +11,14 @@ Three kinds of request:
 | Report | Several questions at once: "The CEO wants to know A, B and C" | A summary, one section per question, a next step |
 | Dashboard | A standing view of one subject | A grid of numbers and charts that you refresh without the AI |
 
+## Working with a page
+
+- **Other chart:** on any chart, see the same query in another form (bar, donut, treemap, ...). Only forms that fit
+  the data are offered. No model is called.
+- **Click a bar, a slice or a point:** go deeper into that value, or add a chart about it.
+- **Add to this page:** ask for one more chart on a dashboard or a report that exists.
+- **Remove**, **Pin**, **Refresh data**.
+
 ## How it keeps numbers right
 
 - **The model never types a number into a chart.** Each data block carries its query (`sql`) and where the rows go

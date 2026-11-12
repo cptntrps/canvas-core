@@ -153,3 +153,29 @@ def test_an_answer_has_a_small_block_limit(desk):
     for i in range(tools.MAX_BLOCKS["answer"]):
         assert t.call("add_block", {"block": {"kind": "insight", "title": f"A{i}", "text": "B"}}).startswith("ok")
     assert "limit" in t.call("add_block", {"block": {"kind": "insight", "title": "more", "text": "B"}})
+
+
+# ---- the same query in another chart form ----------------------------------------------------------------------
+
+def test_a_block_changes_form_inside_its_family_and_keeps_its_query(desk):
+    make, database, drawn = desk
+    assert tools.family(CHART) == ["bar", "hbar", "pareto", "donut", "treemap", "funnel"]
+    filled, rendered = tools.convert(database, dict(CHART, highlight=[0]), "donut")
+    assert rendered["chart"] == "donut" and filled["bind"] == "slices" and filled["sql"] == CHART["sql"]
+    assert filled["slices"] == [{"label": "Travel", "value": 120.0}, {"label": "Events", "value": 80.0}]
+    assert "data" not in filled and "highlight" not in filled, "fields of the old form do not travel"
+    with pytest.raises(tools.Refused):
+        tools.convert(database, dict(CHART), "line")
+    assert tools.family({"kind": "chart", "chart": "heatmap", "bind": "cells"}) == []
+    assert tools.family({"kind": "kpi", "bind": "items"}) == []
+
+
+def test_alternatives_leave_out_the_current_form_and_any_form_the_renderer_refuses(desk, monkeypatch):
+    make, database, _ = desk
+
+    def picky(spec):
+        if spec.get("chart") == "pareto":
+            raise tools.render.Refused("pareto needs 3 bars")
+        return {"kind": "chart", "chart": spec["chart"], "html": "<section/>"}
+    monkeypatch.setattr(tools.render, "render_block", picky)
+    assert tools.alternatives(database, dict(CHART)) == ["bar", "donut", "treemap", "funnel"]

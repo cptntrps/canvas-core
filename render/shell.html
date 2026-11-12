@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="color-scheme" content="light dark">
 <title>Canvas</title>
-<style>/*LEAFLET_CSS*/@media (min-width: 900px) { body.dash #blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; align-items: start; } body { max-width: 760px; margin-left: auto; margin-right: auto; } body.dash { max-width: 1500px; } body.dash .block { margin: 0; } }
+<style>/*LEAFLET_CSS*/.acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; padding-right: 44px; } .acts button { border: 1px solid var(--line, #d5dde2); background: none; color: var(--ink-2); border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 12px; cursor: pointer; } .acts button:hover { color: var(--ink); } body.running .acts { display: none; }
+@media (min-width: 900px) { body.dash #blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; align-items: start; } body { max-width: 760px; margin-left: auto; margin-right: auto; } body.dash { max-width: 1500px; } body.dash .block { margin: 0; } }
 </style>
 <style>
 :root {
@@ -30,7 +31,7 @@ html { -webkit-text-size-adjust: 100%; background: transparent; }
 body {
   margin: 0; padding: 8px 16px 28px; background: transparent; color: var(--ink);
   font-size: 17px; font: -apple-system-body; font-family: -apple-system, system-ui, "SF Pro Text", sans-serif;
-  -webkit-user-select: none; user-select: none; overflow-wrap: break-word;
+  overflow-wrap: break-word;
 }
 h1, h2, h3, h4, p { margin: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -191,6 +192,14 @@ const canvas = (() => {
       flag.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4m0 1h11l-2 4 2 4H5"/></svg>';
       flag.addEventListener('click', () => post({ type: 'ask', text: 'This is wrong: "' + name.trim() + '". Check where this data comes from and how fresh it is, look for a better source, and report the problem to the owner of the data.' }));
       el.appendChild(flag);
+      if (window.parent !== window && !(window.webkit && window.webkit.messageHandlers)) {       // the web app: actions on the block
+        const bar = document.createElement('div'); bar.className = 'acts';
+        const act = (label, type) => { const x = document.createElement('button'); x.type = 'button'; x.textContent = label;
+          x.addEventListener('click', ev => { ev.stopPropagation(); post({ type, seq: b.seq, title: name.trim(), chart: b.chart }); }); bar.appendChild(x); };
+        if (b.chart) act('Other chart', 'alt');
+        act('Ask about this', 'about'); act('Remove', 'remove');
+        el.appendChild(bar);
+      }
       $('blocks').appendChild(el); last = b.seq; added = added || el;
       el.querySelectorAll('.map[data-map]').forEach(drawMap);
     }
@@ -246,6 +255,8 @@ const canvas = (() => {
     tip.textContent = title.textContent;
     const x = Math.min(window.innerWidth - tip.offsetWidth - 12, Math.max(12, e.pageX - tip.offsetWidth / 2));
     tip.style.left = x + 'px'; tip.style.top = (e.pageY - tip.offsetHeight - 14) + 'px'; tip.classList.add('on');
+    const owner = mark.closest('.block');
+    if (owner) post({ type: 'mark', seq: Number(owner.dataset.seq), text: title.textContent, title: ((owner.querySelector('h3, h4') || {}).textContent || '').trim() });
   });
   window.addEventListener('scroll', () => $('tip').classList.remove('on'), { passive: true });
 
@@ -255,5 +266,6 @@ const canvas = (() => {
   return { render, clear, fail };
 })();
 </script>
+<script>window.canvas = canvas;  // the web app reaches the page through its frame</script>
 </body>
 </html>
