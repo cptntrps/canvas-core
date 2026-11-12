@@ -1,0 +1,8 @@
+__pycache__/
+.venv/
+*.pyc
+canvas.toml
+canvas.db
+.env
+node_modules/
+.pytest_cache/

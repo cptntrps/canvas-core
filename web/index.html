@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{name}}</title>
+<style>
+:root { --bg: #f4f6f7; --panel: #ffffff; --ink: #16222b; --muted: #5b6b75; --line: #d8e0e5; --accent: #0b6e69; --accent-ink: #ffffff; --warn: #a85b00; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0f181e; --panel: #17232b; --ink: #e8eef1; --muted: #9db0ba; --line: #2a3a44; --accent: #5fd0c8; --accent-ink: #0f181e; --warn: #f0b354; color-scheme: dark; } }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: grid; grid-template-columns: 290px 1fr; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+aside { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+aside h1 { font-size: 17px; margin: 0; padding: 16px 16px 10px; }
+aside h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 14px 16px 6px; }
+#lists { overflow-y: auto; flex: 1; padding-bottom: 12px; }
+.item { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; font: inherit; padding: 8px 16px; cursor: pointer; }
+.item:hover, .item.on { background: var(--bg); }
+.item small { display: block; color: var(--muted); font-size: 12px; }
+.empty { color: var(--muted); font-size: 13px; padding: 2px 16px; }
+main { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; min-height: 0; }
+#bar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); min-height: 52px; flex-wrap: wrap; }
+#state { color: var(--muted); font-size: 13px; flex: 1; min-width: 120px; }
+#state.warn { color: var(--warn); }
+button.act { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 6px 14px; font: inherit; cursor: pointer; }
+button.act:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+iframe { width: 100%; height: 100%; border: 0; background: var(--bg); }
+form { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel); align-items: end; }
+#modes { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+#modes label { padding: 7px 13px; cursor: pointer; font-size: 13px; }
+#modes input { position: absolute; opacity: 0; }
+#modes input:checked + span { color: var(--accent); font-weight: 700; }
+#modes label:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+textarea { width: 100%; resize: none; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font: inherit; color: inherit; background: var(--bg); min-height: 40px; max-height: 160px; }
+#hint { grid-column: 1 / -1; color: var(--muted); font-size: 12px; margin: 0; }
+@media (max-width: 760px) { body { grid-template-columns: 1fr; } aside { display: none; } form { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>{{name}}</h1>
+  <div id="lists">
+    <h2>Dashboards and pinned</h2><div id="pinned"></div>
+    <h2>History</h2><div id="history"></div>
+  </div>
+</aside>
+<main>
+  <div id="bar">
+    <span id="state">Ask a question about the data.</span>
+    <button class="act" id="refresh" type="button" disabled>Refresh data</button>
+    <button class="act" id="pin" type="button" disabled>Pin</button>
+    <button class="act" id="stop" type="button" disabled>Stop</button>
+    <button class="act" id="remove" type="button" disabled>Delete</button>
+  </div>
+  <iframe id="page" src="/shell" title="Report"></iframe>
+  <form id="ask">
+    <div id="modes" role="radiogroup" aria-label="Kind of request">
+      <label><input type="radio" name="mode" value="answer" checked><span>Answer</span></label>
+      <label><input type="radio" name="mode" value="report"><span>Report</span></label>
+      <label><input type="radio" name="mode" value="dashboard"><span>Dashboard</span></label>
+    </div>
+    <textarea id="q" rows="1" placeholder="What were Travel and Events expenses this year?" aria-label="Your request"></textarea>
+    <button class="act primary" id="send" type="submit">Ask</button>
+    <p id="hint">Answer: one question. Report: several questions at once, one section each. Dashboard: a standing view you refresh without the AI.</p>
+  </form>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let current = null, timer = null, last = null, ready = false;
+const frame = $('page');
+const api = (path, options) => fetch(path, options).then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
+const show = report => { if (ready) frame.contentWindow.canvas.render(report); };
+frame.addEventListener('load', () => { ready = true; if (last) show(last); });
+window.addEventListener('message', e => {
+  if (e.origin !== location.origin || !e.data || !e.data.canvas) return;
+  const m = e.data.canvas;
+  if (m.type === 'ask') { $('q').value = m.text; ask(m.text, document.querySelector('input[name=mode]:checked').value, current); }
+});
+function state(text, warn) { $('state').textContent = text; $('state').classList.toggle('warn', !!warn); }
+function buttons(r) {
+  const running = r && r.status === 'running';
+  $('stop').disabled = !running; $('pin').disabled = !r || running; $('remove').disabled = !r || running; $('refresh').disabled = !r || running;
+  $('pin').textContent = r && r.pinned ? 'Unpin' : 'Pin'; $('send').disabled = !!running;
+}
+async function lists() {
+  const { reports } = await api('/api/reports');
+  const fill = (el, rows, none) => {
+    el.replaceChildren();
+    if (!rows.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = none; el.appendChild(p); }
+    for (const r of rows) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'item' + (r.id === current ? ' on' : '');
+      b.textContent = r.title || r.question; const s = document.createElement('small');
+      s.textContent = r.mode + ' · ' + new Date(r.refreshed_at || r.created_at).toLocaleString(); b.appendChild(s);
+      b.addEventListener('click', () => open(r.id)); el.appendChild(b);
+    }
+  };
+  fill($('pinned'), reports.filter(r => r.pinned || r.mode === 'dashboard'), 'Nothing pinned yet.');
+  fill($('history'), reports.filter(r => !r.pinned && r.mode !== 'dashboard'), 'No reports yet.');
+}
+async function poll() {
+  if (!current) return;
+  try {
+    const r = await api('/api/reports/' + current); last = r; show(r); buttons(r);
+    const bad = (r.blocks || []).filter(b => b.refresh_error).length;
+    if (r.status === 'running') { state(r.activity || 'Works'); timer = setTimeout(poll, 900); }
+    else { state(r.status === 'ok' ? (bad ? bad + ' block(s) kept their old data at the last refresh.' : (r.refreshed_at ? 'Data refreshed ' + new Date(r.refreshed_at).toLocaleString() : 'Done.')) : 'This report did not finish: ' + (r.error || 'unknown error'), r.status !== 'ok' || bad); lists(); }
+  } catch (err) { state('The app does not answer: ' + err.message, true); timer = setTimeout(poll, 3000); }
+}
+function open(id) { clearTimeout(timer); current = id; last = null; if (ready) frame.contentWindow.canvas.clear(); poll(); lists(); }
+async function ask(text, mode, parent) {
+  text = text.trim(); if (!text) return;
+  try { const made = await api('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: text, mode, parent_id: parent }) });
+        $('q').value = ''; open(made.id); }
+  catch (err) { state(err.message, true); }
+}
+$('ask').addEventListener('submit', e => { e.preventDefault(); ask($('q').value, document.querySelector('input[name=mode]:checked').value, null); });
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('ask').requestSubmit(); } });
+$('q').addEventListener('input', e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; });
+$('stop').addEventListener('click', () => api('/api/reports/' + current + '/cancel', { method: 'POST' }));
+$('pin').addEventListener('click', async () => { await api('/api/reports/' + current + '/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: !(last && last.pinned) }) }); poll(); });
+$('remove').addEventListener('click', async () => { if ($('remove').dataset.sure !== current) { $('remove').dataset.sure = current; $('remove').textContent = 'Delete: press again'; return; }
+  await api('/api/reports/' + current, { method: 'DELETE' }); $('remove').textContent = 'Delete'; current = null; last = null; frame.contentWindow.canvas.clear(); buttons(null); state('Deleted.'); lists(); });
+$('refresh').addEventListener('click', async () => { state('Runs the queries again'); $('refresh').disabled = true;
+  try { await api('/api/reports/' + current + '/refresh', { method: 'POST' }); frame.contentWindow.canvas.clear(); } catch (err) { state(err.message, true); } poll(); });
+lists();
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# Copy to canvas.toml and fill in. Secrets stay out of this file: it names the environment variables that hold them.
+
+[app]
+name = "Canvas"
+language = "English"
+currency = "USD"
+port = 8570                 # the app listens on this machine only: http://127.0.0.1:8570
+glossary = "glossary.md"    # what the business terms mean in this database; leave "" to run without one
+
+[database]
+kind = "mysql"
+host = "127.0.0.1"
+port = 3306
+name = "finance"
+user = "canvas_ro"                    # a user with SELECT only
+password_env = "CANVAS_DB_PASSWORD"   # the NAME of the environment variable with the password
+
+[model]
+kind = "openai"                       # "openai": chat completions with tools (also Azure and most gateways); "anthropic": messages
+base_url = "https://ai.example.com/v1"
+model = "the-model-name"
+api_key_env = "CANVAS_MODEL_KEY"      # the NAME of the environment variable with the key
+# path = "/chat/completions"          # change when the gateway uses another path
+# key_header = "Authorization"        # and key_prefix = "Bearer " are the defaults; a gateway may want "api-key" and ""

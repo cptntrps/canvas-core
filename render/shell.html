@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="light dark">
+<title>Canvas</title>
+<style>/*LEAFLET_CSS*/@media (min-width: 900px) { body.dash #blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; align-items: start; } body { max-width: 760px; margin-left: auto; margin-right: auto; } body.dash { max-width: 1500px; } body.dash .block { margin: 0; } }
+</style>
+<style>
+:root {
+  --ink: #111827; --ink-2: #4B5563; --surface: #FFFFFF; --hairline: rgba(17, 24, 39, .08);
+  --accent: #4F46E5; --good: #047857; --bad: #B91C1C; --warn: #B45309;
+  --good-bg: rgba(4, 120, 87, .09); --bad-bg: rgba(185, 28, 28, .08); --warn-bg: rgba(180, 83, 9, .10); --note-bg: rgba(79, 70, 229, .08);
+  --chart-ink: var(--ink); --chart-axis-text: var(--ink-2); --chart-grid: #E5E7EB; --chart-paper: var(--surface);
+  --chart-1: #4F46E5; --chart-2: #0D9488; --chart-3: #D97706; --chart-4: #E11D48; --chart-5: #0284C7;
+  --chart-muted: #C7CBD4; --chart-total: #6B7280; --chart-target: #B91C1C;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #F4F4F5; --ink-2: #A8A8B3; --surface: #1C1C1F; --hairline: rgba(255, 255, 255, .10);
+    --accent: #818CF8; --good: #34D399; --bad: #F87171; --warn: #FBBF24;
+    --good-bg: rgba(52, 211, 153, .12); --bad-bg: rgba(248, 113, 113, .12); --warn-bg: rgba(251, 191, 36, .12); --note-bg: rgba(129, 140, 248, .14);
+    --chart-grid: #303036; --chart-1: #818CF8; --chart-2: #2DD4BF; --chart-3: #FBBF24; --chart-4: #FB7185; --chart-5: #38BDF8;
+    --chart-muted: #4B4B55; --chart-total: #8B8B96; --chart-target: #F87171;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; background: transparent; }
+body {
+  margin: 0; padding: 8px 16px 28px; background: transparent; color: var(--ink);
+  font-size: 17px; font: -apple-system-body; font-family: -apple-system, system-ui, "SF Pro Text", sans-serif;
+  -webkit-user-select: none; user-select: none; overflow-wrap: break-word;
+}
+h1, h2, h3, h4, p { margin: 0; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+#head { padding: 4px 2px 14px; }
+#question { font-size: 13px; font: -apple-system-footnote; color: var(--ink-2); }
+#question::before { content: "“"; } #question::after { content: "”"; }
+/* The app's two round buttons float at the top right, level with this line: the line keeps clear of them and is
+   as tall as they are, so the title below always starts under the buttons. */
+#question { padding-right: 118px; min-height: 46px; display: flex; align-items: center; }
+#title { font-size: 30px; font: -apple-system-title1; font-size: 30px; font-weight: 750; letter-spacing: -.02em; line-height: 1.12; margin-top: 4px; text-wrap: balance; }
+#head[hidden], #question:empty, #title:empty { display: none; }
+
+.block { margin: 0 0 12px; }
+.block.heading { margin: 22px 2px 10px; }
+.block.heading h2 { font-size: 22px; font: -apple-system-title2; font-weight: 700; }
+.block.heading h3 { font-size: 20px; font: -apple-system-title3; font-weight: 650; }
+
+.block.kpi { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.block.kpi.n1 { grid-template-columns: 1fr; }
+.kpi-cell.wide { grid-column: 1 / -1; }
+.kpi-cell { background: var(--surface); border-radius: 24px; padding: 14px 16px 12px; min-width: 0; box-shadow: 0 0 0 .5px var(--hairline); }
+.kpi-label { font-size: 13px; font: -apple-system-footnote; color: var(--ink-2); }
+.kpi-value { font-size: 28px; font: -apple-system-title1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin-top: 2px; }
+.kpi-cell.wide .kpi-value { font-size: 34px; font: -apple-system-largetitle; font-weight: 750; }
+.delta { font-size: 13px; font: -apple-system-footnote; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 3px; color: var(--ink-2); }
+.delta.good { color: var(--good); } .delta.bad { color: var(--bad); }
+.delta .arrow { font-size: .72em; margin-right: 3px; vertical-align: .08em; }
+.delta .vs { font-weight: 400; color: var(--ink-2); }
+.spark { margin-top: 8px; } .spark svg { display: block; width: 100%; height: auto; }
+.kpi-cell { position: relative; }
+.kpi-cell.wide.has-spark { padding-right: 150px; }
+.kpi-cell.wide .spark { position: absolute; right: 16px; bottom: 16px; width: 118px; margin: 0; }
+
+.block.insight { display: flex; gap: 14px; align-items: flex-start; background: var(--surface); border-radius: 26px; padding: 18px 18px 16px; box-shadow: 0 0 0 .5px var(--hairline); }
+.block.insight .tile { flex: none; width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: var(--note-bg); color: var(--accent); }
+.block.insight.good .tile { background: var(--good-bg); color: var(--good); }
+.block.insight.bad .tile { background: var(--bad-bg); color: var(--bad); }
+.block.insight.warn .tile { background: var(--warn-bg); color: var(--warn); }
+.block.insight .body { min-width: 0; flex: 1; }
+.block.insight h4 { font-size: 17px; font-weight: 600; font: -apple-system-headline; line-height: 1.25; margin-bottom: 4px; text-wrap: pretty; }
+.block.insight p { font-size: 15px; font: -apple-system-subheadline; line-height: 1.4; color: var(--ink-2); }
+.block.insight p strong { color: var(--ink); font-weight: 600; }
+.block.insight p.basis { font-size: 12px; font: -apple-system-caption1; margin-top: 6px; opacity: .85; }
+
+.block.chart, .block.table { background: var(--surface); border-radius: 26px; padding: 18px 16px 14px; box-shadow: 0 0 0 .5px var(--hairline); }
+.block.chart h3, .block.table h3 { font-size: 12px; font: -apple-system-caption1; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+.block.chart h3 .unit { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.block.chart h3 .unit::before { content: "· "; }
+.takeaway { font-size: 17px; font-weight: 600; font: -apple-system-headline; line-height: 1.28; margin: 5px 0 12px; text-wrap: pretty; }
+.plot svg { display: block; width: 100%; height: auto; overflow: visible; font-family: inherit; }
+.plot svg text { font-variant-numeric: tabular-nums; }
+.plot.up-neutral { --chart-up: var(--chart-1); --chart-down: var(--chart-3); }
+.plot.up-good { --chart-up: var(--good); --chart-down: var(--bad); }
+.plot.up-bad { --chart-up: var(--bad); --chart-down: var(--good); }
+.source { font-size: 11px; font: -apple-system-caption2; color: var(--ink-2); margin-top: 10px; }
+.through { font-size: 11px; font: -apple-system-caption2; color: var(--ink-2); margin-top: 2px; }
+.through.stale { display: inline-block; margin-top: 8px; padding: 5px 10px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 12px; font: -apple-system-caption1; font-weight: 600; }
+.through.stale span { font-weight: 800; margin-right: 3px; }
+.block { position: relative; }
+.flag { position: absolute; right: 6px; bottom: 4px; width: 44px; height: 44px; border: 0; background: none; color: var(--ink-2); opacity: .55; display: grid; place-items: center; padding: 0; }
+.flag:active { opacity: 1; color: var(--bad); }
+.block.heading .flag, body.running .flag, .block.kpi .flag { display: none; }
+.block.chart, .block.table, .block.insight { padding-bottom: 30px; }
+
+.map { height: 320px; border-radius: 16px; overflow: hidden; background: var(--chart-grid); z-index: 0; }
+.map .leaflet-control-attribution { font-size: 9px; background: rgba(255, 255, 255, .7); }
+.map .leaflet-popup-content { margin: 10px 12px; font: -apple-system-footnote; font-size: 13px; color: #111827; }
+.map .leaflet-popup-content b { display: block; font-size: 15px; }
+@media (prefers-color-scheme: dark) { .map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9); } }
+.map { position: relative; }
+.map-hint { position: absolute; z-index: 500; left: 50%; bottom: 10px; transform: translateX(-50%); padding: 5px 11px; border-radius: 12px; background: rgba(17, 24, 39, .72); color: #fff; font-size: 12px; font: -apple-system-caption1; pointer-events: none; white-space: nowrap; }
+.map-top { list-style: none; margin: 10px 0 0; padding: 0; font-size: 15px; font: -apple-system-subheadline; }
+.map-top li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--hairline); }
+.map-top li:last-child { border-bottom: 0; }
+.map-top b { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 8px; font-size: 12px; font: -apple-system-caption1; color: var(--ink-2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+#tip { position: absolute; z-index: 20; max-width: 260px; padding: 7px 10px; border-radius: 10px; background: var(--ink); color: var(--surface); font-size: 13px; font: -apple-system-footnote; font-weight: 600; pointer-events: none; opacity: 0; transition: opacity .12s; }
+#tip.on { opacity: 1; }
+.plot svg [data-hit] { cursor: pointer; }
+.block.table table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 15px; font: -apple-system-subheadline; }
+.block.table th { font-size: 12px; font: -apple-system-caption1; font-weight: 600; color: var(--ink-2); text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--hairline); }
+.block.table td { padding: 9px 8px 9px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+.block.table tr:last-child td { border-bottom: 0; }
+.block.table .n { text-align: right; padding-right: 0; padding-left: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+#pulse { display: none; background: var(--surface); border-radius: 26px; padding: 16px; box-shadow: 0 0 0 .5px var(--hairline); }
+body.running #pulse { display: block; }
+#pulse i { display: block; height: 11px; border-radius: 6px; background: var(--hairline); margin-bottom: 10px; }
+#pulse i:nth-child(1) { width: 38%; } #pulse i:nth-child(2) { width: 84%; height: 15px; } #pulse i:nth-child(3) { height: 96px; border-radius: 12px; margin-bottom: 0; }
+
+#error, #transport { display: none; border-radius: 20px; padding: 13px 16px; background: var(--bad-bg); border-left: 3px solid var(--bad); font-size: 16px; font: -apple-system-callout; margin-bottom: 12px; }
+#error:not(:empty), #transport:not(:empty) { display: block; }
+#transport { background: var(--warn-bg); border-color: var(--warn); }
+
+#next { display: none; margin-top: 18px; }
+#next:not(:empty) { display: block; }
+#next button {
+  display: block; width: 100%; text-align: left; font-size: 16px; font: -apple-system-callout; color: var(--accent); font-weight: 600;
+  background: var(--surface); border: 0; border-radius: 20px; padding: 15px 40px 15px 18px; margin-bottom: 8px; min-height: 44px; box-shadow: 0 0 0 .5px var(--hairline);
+  position: relative;
+}
+#next button::after { content: "\2192"; position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-weight: 400; opacity: .7; }
+#next button:active { opacity: .6; }
+
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-demo]) .block.enter { animation: rise .5s cubic-bezier(.2, .8, .2, 1) both; }
+  html:not([data-demo]) .block.enter .plot svg { animation: wipe .9s .12s cubic-bezier(.3, .7, .2, 1) both; }
+  html:not([data-demo]) body.running #pulse i { animation: breathe 1.4s ease-in-out infinite alternate; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+  @keyframes wipe { from { clip-path: inset(0 100% 0 0); opacity: .2; } to { clip-path: inset(0 -4% 0 0); opacity: 1; } }
+  @keyframes breathe { from { opacity: .45; } to { opacity: 1; } }
+}
+</style>
+</head>
+<body>
+<header id="head" hidden><p id="question"></p><h1 id="title"></h1></header>
+<main id="blocks" aria-live="polite"></main>
+<div id="pulse" aria-hidden="true"><i></i><i></i><i></i></div>
+<p id="error" role="alert"></p>
+<p id="transport" role="status"></p>
+<nav id="next" aria-label="Follow-up questions"></nav>
+<div id="tip" role="status"></div>
+<script>/*LEAFLET_JS*/</script>
+<script>
+"use strict";
+const canvas = (() => {
+  const $ = id => document.getElementById(id);
+  let current = null, last = 0;
+  const post = m => { const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.canvas; if (h) h.postMessage(m); else if (window.parent !== window) window.parent.postMessage({ canvas: m }, location.origin); };
+  const demo = () => document.documentElement.hasAttribute('data-demo');
+  const nearEnd = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
+
+  function clear() {
+    current = null; last = 0;
+    $('blocks').replaceChildren(); $('next').replaceChildren();
+    $('question').textContent = ''; $('title').textContent = ''; $('error').textContent = ''; $('transport').textContent = '';
+    $('head').hidden = true; document.body.classList.remove('running');
+    window.scrollTo(0, 0);
+  }
+
+  function render(report) {
+    if (typeof report === 'string') report = JSON.parse(report);
+    if (report.id !== current) { clear(); current = report.id; }
+    $('transport').textContent = '';
+    $('question').textContent = report.question || ''; $('title').textContent = report.title || '';
+    $('head').hidden = !(report.question || report.title);
+    const follow = nearEnd();
+    let added = null;
+    for (const b of report.blocks || []) {
+      if (b.seq <= last) continue;
+      const t = document.createElement('template'); t.innerHTML = b.html;
+      const el = t.content.firstElementChild; el.classList.add('enter'); el.dataset.seq = b.seq;
+      const name = (el.querySelector('h3, h4') || {}).textContent || b.kind;
+      const flag = document.createElement('button'); flag.type = 'button'; flag.className = 'flag';
+      flag.setAttribute('aria-label', 'This is wrong: ' + name);
+      flag.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4m0 1h11l-2 4 2 4H5"/></svg>';
+      flag.addEventListener('click', () => post({ type: 'ask', text: 'This is wrong: "' + name.trim() + '". Check where this data comes from and how fresh it is, look for a better source, and report the problem to the owner of the data.' }));
+      el.appendChild(flag);
+      $('blocks').appendChild(el); last = b.seq; added = added || el;
+      el.querySelectorAll('.map[data-map]').forEach(drawMap);
+    }
+    document.body.classList.toggle('running', report.status === 'running');
+    document.body.classList.toggle('dash', report.mode === 'dashboard');
+    $('error').textContent = report.status === 'failed' ? (report.error === 'cancelled' ? 'Stopped.' : 'This report did not finish: ' + (report.error || 'unknown error')) : '';
+    const next = $('next'); next.replaceChildren();
+    if (report.status === 'ok' && (report.suggestions || []).length) {
+      for (const s of report.suggestions) {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = s;
+        b.addEventListener('click', () => post({ type: 'ask', text: s })); next.appendChild(b);
+      }
+    }
+    if (added && follow && !demo() && last > 1) added.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    post({ type: 'rendered', id: current, seq: last, status: report.status });
+  }
+
+  // A map block: places as circles sized by their value, a route as a line, on street tiles. Pan, zoom, tap a place.
+  function drawMap(node) {
+    if (!window.L) { node.textContent = 'The map library is missing from this page.'; return; }
+    const data = JSON.parse(node.dataset.map), css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--chart-1').trim() || '#4F46E5', route = css.getPropertyValue('--chart-3').trim() || '#D97706';
+    const map = L.map(node, { zoomControl: false, attributionControl: true, scrollWheelZoom: false, tap: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    const bounds = [];
+    if (data.path.length) { L.polyline(data.path, { color: route, weight: 3.5, opacity: .85 }).addTo(map); bounds.push(...data.path); }
+    const top = Math.max(1, ...data.points.map(p => p.value || 0));
+    data.points.forEach(p => {
+      const r = p.value == null ? 7 : 6 + 16 * Math.sqrt(p.value / top);
+      const mark = L.circleMarker(p.at, { radius: r, color: '#fff', weight: 1.5, fillColor: accent, fillOpacity: .78 }).addTo(map);
+      const b = document.createElement('div'), name = document.createElement('b'); name.textContent = p.label; b.appendChild(name);
+      if (p.text) b.appendChild(document.createTextNode(p.text + (data.valueLabel ? ' ' + data.valueLabel : '')));
+      if (p.detail) { b.appendChild(document.createElement('br')); b.appendChild(document.createTextNode(p.detail)); }
+      mark.bindPopup(b); bounds.push(p.at);
+    });
+    if (bounds.length === 1) map.setView(bounds[0], 14); else map.fitBounds(bounds, { padding: [26, 26], maxZoom: 16 });
+    // On a phone one finger scrolls the page, so the map does not take the drag until it is tapped; a touch
+    // outside the map gives the drag back to the page.
+    if (L.Browser.touch) {
+      const hint = document.createElement('div'); hint.className = 'map-hint'; hint.textContent = 'Tap the map to move it'; node.appendChild(hint);
+      map.dragging.disable();
+      map.on('click', () => { map.dragging.enable(); hint.remove(); });
+      document.addEventListener('touchstart', e => { if (!node.contains(e.target)) map.dragging.disable(); }, { passive: true });
+    }
+    setTimeout(() => map.invalidateSize(), 60);
+  }
+
+  // Tap a mark of any chart to read its exact value (the mark's <title>).
+  document.addEventListener('click', e => {
+    const tip = $('tip'), mark = e.target.closest && e.target.closest('.plot svg *');
+    const title = mark && mark.querySelector(':scope > title');
+    if (!title) { tip.classList.remove('on'); return; }
+    tip.textContent = title.textContent;
+    const x = Math.min(window.innerWidth - tip.offsetWidth - 12, Math.max(12, e.pageX - tip.offsetWidth / 2));
+    tip.style.left = x + 'px'; tip.style.top = (e.pageY - tip.offsetHeight - 14) + 'px'; tip.classList.add('on');
+  });
+  window.addEventListener('scroll', () => $('tip').classList.remove('on'), { passive: true });
+
+  function fail(text) { $('transport').textContent = text || ''; }
+
+  window.addEventListener('load', () => post({ type: 'ready' }));
+  return { render, clear, fail };
+})();
+</script>
+</body>
+</html>

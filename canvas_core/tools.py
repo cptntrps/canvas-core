@@ -1,0 +1,124 @@
+"""The four tools of the agent and the rules that keep a report honest. Each returns text for the model; a Refused
+tells the model what to change. The rules are code, so a model cannot talk its way past them."""
+from __future__ import annotations
+
+from . import bind, render, store
+from .db import QueryRefused
+
+MAX_BLOCKS = {"answer": 5, "report": 24, "dashboard": 12}
+BASIC = {"line", "area", "bar", "hbar", "donut"}
+VARIETY = "the report uses only basic charts"
+DATA_KINDS = ("chart", "kpi", "table", "map", "timeline")
+
+
+class Refused(Exception):
+    pass
+
+
+SCHEMAS = [
+    {"name": "run_sql", "description": "Run one read-only SQL statement on the database and get its rows (500 at most). Use it to explore and to check a query before you bind it to a block.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "set_title", "description": "Set the report title: first a working title, at the end the main finding (60 characters at most).",
+     "parameters": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
+    {"name": "add_block", "description": "Add one block to the report. A block that shows data carries \"sql\" and \"bind\": the door runs the query and fills the data itself.",
+     "parameters": {"type": "object", "properties": {"block": {"type": "object"}}, "required": ["block"]}},
+    {"name": "finish", "description": "Close the report with 3 short follow-up questions.",
+     "parameters": {"type": "object", "properties": {"suggestions": {"type": "array", "items": {"type": "string"}}}, "required": ["suggestions"]}},
+]
+
+
+def preview(result: dict, limit: int = 60) -> str:
+    lines = [" | ".join(result["columns"])]
+    lines += [" | ".join("" if v is None else str(v) for v in row) for row in result["rows"][:limit]]
+    extra = len(result["rows"]) - limit
+    if extra > 0:
+        lines.append(f"... {extra} more rows")
+    if result.get("truncated"):
+        lines.append("(the result was cut at the row limit: aggregate in SQL)")
+    return "\n".join(lines) if result["rows"] else "(no rows)"
+
+
+def fill(database, spec: dict) -> dict:
+    """The spec with its data placed from its query. A block without bind is returned as it is."""
+    if not spec.get("bind"):
+        return spec
+    if not isinstance(spec.get("sql"), str) or not spec["sql"].strip():
+        raise Refused('"bind" needs "sql": the query whose rows fill the block')
+    try:
+        return bind.apply(spec, database.run(spec["sql"]))
+    except (QueryRefused, bind.BindError) as exc:
+        raise Refused(str(exc)) from exc
+
+
+def draw(spec: dict) -> dict:
+    drawn = {k: v for k, v in spec.items() if k not in ("sql", "bind", "repeat_reason")}
+    try:
+        return render.render_block(drawn)
+    except render.Refused as exc:
+        raise Refused(str(exc)) from exc
+
+
+class Tools:
+    def __init__(self, database, report_id: str, mode: str):
+        self.db, self.rid, self.mode = database, report_id, mode
+
+    def call(self, name: str, args: dict) -> str:
+        handler = {"run_sql": self.run_sql, "set_title": self.set_title, "add_block": self.add_block, "finish": self.finish}.get(name)
+        if handler is None:
+            return f"REFUSED: there is no tool named {name}"
+        try:
+            return handler(args if isinstance(args, dict) else {})
+        except Refused as exc:
+            store.event(self.rid, "refusal", name, {"error": str(exc), "args": args})
+            return f"REFUSED: {exc}"
+        except store.Closed as exc:
+            return f"REFUSED: {exc}"
+
+    def run_sql(self, args: dict) -> str:
+        try:
+            return preview(self.db.run(args.get("query", "")))
+        except QueryRefused as exc:
+            raise Refused(str(exc)) from exc
+
+    def set_title(self, args: dict) -> str:
+        title = " ".join(str(args.get("title") or "").split())
+        if not title:
+            raise Refused("title is required")
+        if len(title) > 70:
+            raise Refused(f"the title has {len(title)} characters; the limit is 70. Shorten it.")
+        store.set_title(self.rid, title)
+        return "ok"
+
+    def add_block(self, args: dict) -> str:
+        spec = args.get("block")
+        if not isinstance(spec, dict):
+            raise Refused('block must be a JSON object such as {"kind": "kpi", ...}')
+        if spec.get("kind") in DATA_KINDS and not spec.get("bind"):
+            raise Refused(f'a {spec.get("kind")} block shows data, so it needs "sql" and "bind": the door runs the query and fills the numbers. '
+                          "Never type numbers into a block.")
+        count = store.block_count(self.rid)
+        if count >= MAX_BLOCKS[self.mode]:
+            raise Refused(f"the report has {count} blocks, the limit. Call finish.")
+        filled = fill(self.db, spec)
+        rendered = draw(filled)
+        kind = rendered["chart"]
+        if kind is not None and kind in store.chart_kinds(self.rid) and self.mode != "dashboard" and not str(spec.get("repeat_reason") or "").strip():
+            raise Refused(f'this report already has a "{kind}" chart. Choose another type by the shape of the data, or add "repeat_reason" '
+                          "when the same type is truly right.")
+        seq = store.add_block(self.rid, filled, rendered)
+        return f"ok: block {seq} is on the page."
+
+    def finish(self, args: dict) -> str:
+        suggestions = args.get("suggestions")
+        if not isinstance(suggestions, list) or len(suggestions) < 1 or not all(isinstance(s, str) and s.strip() for s in suggestions):
+            raise Refused("suggestions must be a list of 3 short questions")
+        suggestions = [" ".join(s.split())[:80] for s in suggestions][:3]
+        if store.block_count(self.rid) == 0:
+            raise Refused("the report is empty: add at least one block before you finish")
+        kinds = store.chart_kinds(self.rid)
+        if self.mode == "report" and len(kinds) >= 3 and set(kinds) <= BASIC and not store.refused_before(self.rid, "finish", VARIETY):
+            raise Refused(f"{VARIETY} ({', '.join(kinds)}). Add one chart that shows a change, a spread, a flow or a second dimension "
+                          "(waterfall, heatmap, pareto, treemap, boxplot, sankey, stacked_area, slope), then call finish again.")
+        if not store.finish(self.rid, "ok", suggestions=suggestions):
+            raise store.Closed("the report is closed")
+        return "ok: the report is closed. Stop now."
