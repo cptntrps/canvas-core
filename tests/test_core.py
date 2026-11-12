@@ -179,3 +179,66 @@ def test_alternatives_leave_out_the_current_form_and_any_form_the_renderer_refus
         return {"kind": "chart", "chart": spec["chart"], "html": "<section/>"}
     monkeypatch.setattr(tools.render, "render_block", picky)
     assert tools.alternatives(database, dict(CHART)) == ["bar", "donut", "treemap", "funnel"]
+
+
+# ---- the Claude adapter: the transcript the SDK needs -----------------------------------------------------------
+
+class _Block:
+    def __init__(self, **fields):
+        self.__dict__.update(fields)
+
+
+def _claude(monkeypatch, replies):
+    from canvas_core import config, models
+    sent = []
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            sent.append({**kwargs, "messages": list(kwargs["messages"])})
+            return replies.pop(0)
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs, self.messages = kwargs, FakeMessages()
+
+    import anthropic
+    made = {}
+    monkeypatch.setattr(anthropic, "AnthropicFoundry", lambda **kw: made.setdefault("foundry", FakeClient(**kw)))
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kw: made.setdefault("anthropic", FakeClient(**kw)))
+    monkeypatch.setenv("TEST_MODEL_KEY", "k")
+    settings = config.Settings(model={"kind": "claude", "platform": "foundry", "resource": "my-resource", "model": "my-deployment", "api_key_env": "TEST_MODEL_KEY"})
+    return models.connect(settings, "brief", tools.SCHEMAS), sent, made
+
+
+def test_claude_on_azure_uses_the_foundry_client_and_keeps_the_whole_turn(monkeypatch):
+    thinking = _Block(type="thinking", thinking="", signature="s")
+    call_a = _Block(type="tool_use", id="t1", name="run_sql", input={"query": "SELECT 1"})
+    call_b = _Block(type="tool_use", id="t2", name="set_title", input={"title": "T"})
+    reply = _Block(content=[thinking, call_a, call_b], stop_reason="tool_use")
+    done = _Block(content=[_Block(type="text", text="done")], stop_reason="end_turn")
+    model, sent, made = _claude(monkeypatch, [reply, done])
+    assert "foundry" in made and made["foundry"].kwargs["resource"] == "my-resource"
+    model.user("go")
+    step = model.step()
+    assert [c["name"] for c in step["calls"]] == ["run_sql", "set_title"]
+    assert sent[0]["model"] == "my-deployment" and sent[0]["tools"][0]["input_schema"]["type"] == "object"
+    assert "thinking" not in sent[0], "thinking is left to the model's default"
+    model.results([(step["calls"][0], "ok"), (step["calls"][1], "REFUSED: too long")])
+    model.step()
+    history = sent[1]["messages"]
+    assert history[1]["content"] == [thinking, call_a, call_b], "the assistant turn goes back unchanged, thinking block included"
+    results = history[2]["content"]
+    assert [r["tool_use_id"] for r in results] == ["t1", "t2"], "every result of the turn in one user message"
+    assert "is_error" not in results[0] and results[1]["is_error"] is True
+
+
+def test_a_refusal_and_a_cut_answer_are_errors_with_words(monkeypatch):
+    from canvas_core import models
+    model, _, _ = _claude(monkeypatch, [_Block(content=[], stop_reason="refusal")])
+    model.user("go")
+    with pytest.raises(models.ModelError, match="declined"):
+        model.step()
+    model, _, _ = _claude(monkeypatch, [_Block(content=[_Block(type="text", text="half")], stop_reason="max_tokens")])
+    model.user("go")
+    with pytest.raises(models.ModelError, match="max_tokens"):
+        model.step()

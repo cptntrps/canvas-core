@@ -5,20 +5,40 @@ name = "Canvas"
 language = "English"
 currency = "USD"
 port = 8570                 # the app listens on this machine only: http://127.0.0.1:8570
-glossary = "glossary.md"    # what the business terms mean in this database; leave "" to run without one
+glossary = "glossary.md"    # what the business terms mean in your database; leave "" to run without one
 
 [database]
 kind = "mysql"
 host = "127.0.0.1"
 port = 3306
-name = "finance"
+name = "your_database"
 user = "canvas_ro"                    # a user with SELECT only
 password_env = "CANVAS_DB_PASSWORD"   # the NAME of the environment variable with the password
 
+# ---- the model: keep ONE of the blocks below -----------------------------------------------------------------------
+
+# Claude on Microsoft Foundry (Azure)
 [model]
-kind = "openai"                       # "openai": chat completions with tools (also Azure and most gateways); "anthropic": messages
-base_url = "https://ai.example.com/v1"
-model = "the-model-name"
-api_key_env = "CANVAS_MODEL_KEY"      # the NAME of the environment variable with the key
-# path = "/chat/completions"          # change when the gateway uses another path
-# key_header = "Authorization"        # and key_prefix = "Bearer " are the defaults; a gateway may want "api-key" and ""
+kind = "claude"
+platform = "foundry"
+resource = "your-azure-resource-name"  # the name of the Foundry resource, not a URL
+model = "claude-opus-5-5"              # the name of your DEPLOYMENT
+api_key_env = "CANVAS_MODEL_KEY"
+
+# Claude API (Anthropic)
+# [model]
+# kind = "claude"
+# platform = "anthropic"
+# model = "claude-opus-5-5"
+# api_key_env = "CANVAS_MODEL_KEY"
+
+# Azure OpenAI, OpenAI, a company gateway or a local model server (chat completions with tools)
+# [model]
+# kind = "openai"
+# base_url = "https://your-resource.openai.azure.com/openai/v1"
+# model = "your-deployment-name"
+# api_key_env = "CANVAS_MODEL_KEY"
+# key_header = "api-key"              # Azure OpenAI sends the key in this header ...
+# key_prefix = ""                     # ... with no "Bearer " in front. Leave both out for OpenAI and most gateways.
+
+# Optional for every kind: timeout = 300 (seconds). For kind "claude": max_tokens = 16000, effort = "medium".

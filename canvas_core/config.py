@@ -57,9 +57,11 @@ def load(path: str | None = None) -> Settings:
         database=raw.get("database", {}), model=raw.get("model", {}), root=file.parent)
     if settings.database.get("kind") != "mysql":
         raise ConfigError("canvas.toml: [database] kind must be \"mysql\"")
-    if settings.model.get("kind") not in ("openai", "anthropic"):
-        raise ConfigError("canvas.toml: [model] kind must be \"openai\" (chat completions with tools) or \"anthropic\" (messages)")
-    for key in ("base_url", "model"):
-        if not settings.model.get(key):
-            raise ConfigError(f"canvas.toml: [model] {key} is missing")
+    kind = settings.model.get("kind")
+    if kind not in ("openai", "claude"):
+        raise ConfigError("canvas.toml: [model] kind must be \"claude\" (Claude API or Claude on Azure) or \"openai\" (chat completions with tools)")
+    if not settings.model.get("model"):
+        raise ConfigError("canvas.toml: [model] model is missing (the model name, or the deployment name on Azure)")
+    if kind == "openai" and not settings.model.get("base_url"):
+        raise ConfigError("canvas.toml: [model] base_url is missing")
     return settings

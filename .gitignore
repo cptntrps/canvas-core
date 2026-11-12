@@ -6,3 +6,4 @@ canvas.db
 .env
 node_modules/
 .pytest_cache/
+/glossary.md
