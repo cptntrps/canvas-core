@@ -197,7 +197,7 @@ and `sample/glossary.md` is its glossary. Use it to try the app before you point
 | `canvas_core/check.py` | The installation check |
 | `canvas_core/store.py` | Reports and blocks in one SQLite file |
 | `canvas_core/prompt.md` | The brief of the agent |
-| `render/` | The chart renderer and the report page; `render/vendor/` holds Leaflet and PptxGenJS 3.12.0 (both MIT) |
+| `render/` | The chart renderer and the report page; `render/vendor/` holds Leaflet 1.9.4 (BSD 2-Clause) and PptxGenJS 3.12.0 (MIT); notices in `render/vendor/LICENSES.md` |
 | `web/index.html` | The screen |
 
 Tests: `.venv/bin/python -m pytest -q tests`.
