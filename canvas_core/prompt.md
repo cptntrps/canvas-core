@@ -32,7 +32,25 @@ The door runs the query and fills the block. So first run the query with `run_sq
 The request says which one this is.
 - **answer**: one question ("what is X?"). The answer first (a `kpi` or an `insight`), then at most 2 charts for context. 2 to 4 blocks.
 - **report**: several questions at once ("the CEO wants to know A, B and C") or one broad subject. Start with one `insight` that answers all of them in brief (title "Summary"). Then one section per question: a `heading` with the question in a few words, the direct answer (`kpi` or `insight`), and 1 to 3 charts that support it. End with one `insight` with what to do next. Up to 24 blocks. Answer every question that was asked, in the order asked; when the data cannot answer one, say so in its section and say what is missing.
-- **dashboard**: a standing view of one subject, to be refreshed later without you. One `kpi` block, then 5 to 9 charts and tables that together cover the subject (level, trend, composition, ranking, outliers). No insights: text goes stale when the data changes, so each `takeaway` must stay true as numbers move (say what the chart shows, not today's value). Use relative dates in SQL (CURDATE(), INTERVAL) and `through_sql`, never a fixed date.
+- **dashboard**: a standing view of one subject, to be refreshed later without you. One `kpi` block, then 5 to 9 charts and tables that together cover the subject (level, trend, composition, ranking, outliers). No insights: text goes stale when the data changes, so each `takeaway` must stay true as numbers move (say what the chart shows, not today's value). Use relative dates in SQL (CURDATE(), INTERVAL) and `through_sql`, never a fixed date. A dashboard has page filters: see below.
+
+# Page filters (dashboard only)
+The reader narrows the whole dashboard with filters, and a click on a bar or a slice sets a filter too. No model runs then: the door runs each block's sql again with the chosen values. So:
+1. Right after `set_title`, call `set_filters` once with 2 to 4 filters that fit the subject: the main dimensions (department, category, vendor, region) as `choice`, and the date as `date_range`.
+```json
+{{"filters": [{{"name": "Department", "param": "department", "kind": "choice", "options_sql": "SELECT name FROM departments ORDER BY name"}},
+             {{"name": "Period", "param": "period", "kind": "date_range"}}]}}
+```
+2. In EVERY data block's `sql` (and in `through_sql`), put one optional clause per filter in double square brackets. The door keeps a clause only while its filter is set, so the query must be valid with all clauses left out: start with `WHERE 1 = 1` (or put the clauses after your own conditions).
+```sql
+SELECT c.name AS label, ROUND(SUM(l.amount), 2) AS value FROM expense_lines l JOIN departments d ON d.id = l.department_id JOIN categories c ON c.id = l.category_id
+WHERE l.spent_on >= CURDATE() - INTERVAL 12 MONTH [[AND d.name = :department]] [[AND l.spent_on >= :period_from]] [[AND l.spent_on <= :period_to]]
+GROUP BY c.name ORDER BY value DESC LIMIT 10
+```
+- A `choice` filter named `department` gives the value `:department`; compare it with the SAME column expression that `options_sql` returns. A `date_range` named `period` gives `:period_from` and `:period_to`, each in its own clause.
+- Join the table a filter needs, also in a block about another dimension, so that every block follows every filter. When a block truly cannot follow any filter (a company-wide reference number), give it `"unfiltered": "<why>"`.
+- A chart of the filter's own dimension (spend by department, as `hbar`, `bar`, `donut`, `treemap`, `pareto` or `bubbles`, with the same names as `options_sql`) becomes clickable: build one such chart per choice filter.
+- `run_sql` accepts the clauses too (they are left out), so test the exact text you will bind.
 
 # Finding groups (cluster analysis)
 Use it when the request asks for segments, groups, types, profiles, "which ones are alike" or "which ones stand out", and the items can be described by 2 to 6 numbers each (per vendor: total spend, number of invoices, average invoice; per employee: trips, spend per trip, share of spend on events).

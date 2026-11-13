@@ -27,6 +27,24 @@ bars with a line on a second scale, small multiples, rank over time (bump), pare
 slope, donut, treemap, packed bubbles, heatmap, calendar, histogram, box plot, strip plot (every item as a dot),
 bullet, gauge, funnel, sankey, scatter, Gantt and word cloud. A street map and a day timeline are separate blocks.
 
+## Working with a dashboard
+
+- **Page filters:** a dashboard has filters at the top (for example Department, Category, a date range). A filter
+  narrows every block that follows it. No model is called: each block runs its own query again with the value (about
+  half a second for a page of six blocks on the sample data). The value travels to MySQL as a bound parameter, never
+  as query text.
+- **Click to filter:** click a bar, a slice or a tile whose names are the values of a filter, then "Filter the page
+  to ...". The other blocks narrow to it. The chart of that dimension stays whole and marks the chosen value.
+- **Arrange:** move a tile with its arrows or by drag and drop, and set its width (normal, wide, full row). A chart on
+  a wide tile is drawn on a wider plot. The app keeps the arrangement.
+- **PowerPoint:** one slide per block: charts as pictures, tables as real tables, the key numbers as tiles, and a
+  title slide that names the active filters. Made in the browser; nothing leaves the machine.
+- **PDF:** opens the print window of the browser with a print layout; choose "Save as PDF".
+
+Limits: a filter takes one value, not several. The sentence above a chart was written for the unfiltered data, so
+under a filter it can be out of date; the numbers in the chart follow the filter. A block with too little data
+under a filter says so and shows no numbers.
+
 ## Working with a page
 
 - **Other chart:** on any chart, see the same query in another form (bar, donut, treemap, line, area, ...). Only
@@ -169,11 +187,12 @@ and `sample/glossary.md` is its glossary. Use it to try the app before you point
 | `canvas_core/bind.py` | Query rows to block data |
 | `canvas_core/cluster.py` | Cluster analysis in plain code |
 | `canvas_core/layouts.py` | The dashboard layouts |
+| `canvas_core/filters.py` | Page filters: optional clauses in a block's query, values bound as parameters |
 | `canvas_core/models.py` | The model adapters: Claude (official SDK) and chat completions |
 | `canvas_core/check.py` | The installation check |
 | `canvas_core/store.py` | Reports and blocks in one SQLite file |
 | `canvas_core/prompt.md` | The brief of the agent |
-| `render/` | The chart renderer |
+| `render/` | The chart renderer and the report page; `render/vendor/` holds Leaflet and PptxGenJS 3.12.0 (both MIT) |
 | `web/index.html` | The screen |
 
 Tests: `.venv/bin/python -m pytest -q tests`.

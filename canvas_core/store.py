@@ -37,6 +37,10 @@ def open_store(path: str) -> None:
     _path = path
     with tx() as db:
         db.executescript(SCHEMA)
+        have = {r["name"] for r in db.execute("PRAGMA table_info(report)")}
+        for column in ("filters", "layout"):        # added after the first release: an older file gains them here
+            if column not in have:
+                db.execute(f"ALTER TABLE report ADD COLUMN {column} TEXT NOT NULL DEFAULT '{{}}'")
 
 
 @contextmanager
@@ -67,6 +71,7 @@ def get_report(rid: str, with_spec: bool = False) -> dict | None:
         report = dict(row)
         report["suggestions"] = json.loads(report["suggestions"])
         report["pinned"] = bool(report["pinned"])
+        report["filters"], report["layout"] = json.loads(report["filters"] or "{}"), json.loads(report["layout"] or "{}")
         blocks = db.execute("SELECT seq, kind, chart, html, spec, refresh_error FROM block WHERE report_id = ? ORDER BY seq", (rid,)).fetchall()
         report["blocks"] = [{"seq": b["seq"], "kind": b["kind"], "chart": b["chart"], "html": b["html"], "refresh_error": b["refresh_error"],
                              **({"spec": json.loads(b["spec"])} if with_spec else {})} for b in blocks]
@@ -138,6 +143,29 @@ def set_block(rid: str, seq: int, spec: dict, rendered: dict) -> None:
         db.execute("UPDATE block SET spec = ?, html = ?, kind = ?, chart = ?, refresh_error = NULL WHERE report_id = ? AND seq = ?",
                    (json.dumps(spec), rendered["html"], rendered["kind"], rendered["chart"], rid, seq))
         db.execute("UPDATE report SET rev = rev + 1 WHERE id = ?", (rid,))
+
+
+def get_filters(rid: str) -> dict:
+    """{"defs": [...], "values": {param: value}, "cross": {param: seq}} of a page; empty parts when it has no filter."""
+    with tx() as db:
+        row = db.execute("SELECT filters FROM report WHERE id = ?", (rid,)).fetchone()
+    found = json.loads(row["filters"] or "{}") if row else {}
+    return {"defs": found.get("defs", []), "values": found.get("values", {}), "cross": found.get("cross", {})}
+
+
+def set_filters(rid: str, filters: dict) -> None:
+    with tx() as db:
+        db.execute("UPDATE report SET filters = ?, rev = rev + 1 WHERE id = ?", (json.dumps(filters), rid))
+
+
+def set_layout(rid: str, layout: dict) -> None:
+    with tx() as db:
+        db.execute("UPDATE report SET layout = ?, rev = rev + 1 WHERE id = ?", (json.dumps(layout), rid))
+
+
+def block_sqls(rid: str) -> list[str]:
+    with tx() as db:
+        return [json.loads(r["spec"]).get("sql") or "" for r in db.execute("SELECT spec FROM block WHERE report_id = ?", (rid,))]
 
 
 def delete_block(rid: str, seq: int) -> None:

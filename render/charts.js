@@ -221,7 +221,7 @@ export function lineChart({ series = [], labels = [], label, width = 600, height
     const Y = v => Tp + (1 - v / ymax) * (H - Tp - B);
     let g = gridY(ticks, L, R, W, Y, fmtY);
     const every = Math.max(1, Math.ceil(labels.length / Math.max(2, Math.floor((W - L - R) / 72))));
-    g += labels.map((x, i) => (i % every === 0 || i === labels.length - 1)
+    g += labels.map((x, i) => (i % every === 0 && (i === 0 || labels.length - 1 - i >= every * 0.75) || i === labels.length - 1)
       ? axisText(X(i), H - 12, i === 0 ? 'start' : i === labels.length - 1 ? 'end' : 'middle', x) : '').join('');
     const avoid = [], placed = [], placedText = new Map();
     series.forEach((s, si) => {
@@ -696,7 +696,7 @@ export function stackedArea({ labels = [], series = [], label, width = 600, heig
       `<polyline fill="none" stroke="${col}" stroke-width="1.6" points="${up.join(' ')}"/>`;
     base = top;
   });
-  g += labels.map((x, i) => (i % every === 0 || i === labels.length - 1)
+  g += labels.map((x, i) => (i % every === 0 && (i === 0 || labels.length - 1 - i >= every * 0.75) || i === labels.length - 1)
     ? axisText(X(i), H - 12, i === 0 ? 'start' : i === labels.length - 1 ? 'end' : 'middle', x) : '').join('');
   return svg(W, height, f.deco + lg.svg + g, lab);
 }

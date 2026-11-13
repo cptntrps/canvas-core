@@ -139,6 +139,32 @@ body.running #pulse { display: block; }
 #next button::after { content: "\2192"; position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-weight: 400; opacity: .7; }
 #next button:active { opacity: .6; }
 
+/* ---- arrange mode, cross-filter, print (the web app's dashboards) ---- */
+@media (min-width: 900px) { body.dash .block.w2 { grid-column: span 2; } body.dash .block.wfull { grid-column: 1 / -1; } }
+.arr { display: none; position: absolute; right: 10px; top: 8px; z-index: 5; gap: 4px; background: var(--surface); border-radius: 999px; padding: 3px; box-shadow: 0 0 0 1px var(--hairline), 0 4px 14px rgba(0,0,0,.16); }
+.arr button { border: 0; background: none; color: var(--ink); font: inherit; font-size: 13px; border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+.arr button:hover { background: var(--note-bg); }
+body.arrange .arr { display: flex; }
+body.arrange .block { outline: 2px dashed var(--hairline); outline-offset: 2px; cursor: grab; border-radius: 26px; }
+body.arrange .block.over { outline-color: var(--accent); }
+body.arrange .block.drag { opacity: .45; }
+body.arrange .acts, body.arrange .flag { display: none; }
+.block[data-cross] .plot svg :is(rect, circle, path):has(> title) { cursor: pointer; }
+@media print {
+  :root { --ink: #111827; --ink-2: #4B5563; --surface: #FFFFFF; --hairline: rgba(17, 24, 39, .14); --accent: #4F46E5; --good: #047857; --bad: #B91C1C; --warn: #B45309;
+    --chart-grid: #E5E7EB; --chart-1: #4F46E5; --chart-2: #0D9488; --chart-3: #D97706; --chart-4: #E11D48; --chart-5: #0284C7; --chart-muted: #C7CBD4; --chart-total: #6B7280; --chart-target: #B91C1C; color-scheme: light; }
+  @page { size: A4 landscape; margin: 10mm; }
+  html, body { background: #fff !important; } body { max-width: none !important; padding: 0; font-size: 13px; }
+  .acts, .flag, .arr, #next, #tip, #pulse { display: none !important; }
+  .block { break-inside: avoid; box-shadow: 0 0 0 1px var(--hairline) !important; }
+  body.dash #blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+  body.dash .block.w2, body.dash .block.wfull, body.dash .block.kpi { grid-column: 1 / -1; }
+  #question { min-height: 0; padding-right: 0; } #title { font-size: 22px; }
+  #filterline { display: block !important; font-size: 11px; color: var(--ink-2); margin: 2px 2px 8px; }
+  .block.enter, .block.enter .plot svg { animation: none !important; }
+}
+#filterline { display: none; }
+
 @media (prefers-reduced-motion: no-preference) {
   html:not([data-demo]) .block.enter { animation: rise .5s cubic-bezier(.2, .8, .2, 1) both; }
   html:not([data-demo]) .block.enter .plot svg { animation: wipe .9s .12s cubic-bezier(.3, .7, .2, 1) both; }
@@ -150,7 +176,7 @@ body.running #pulse { display: block; }
 </style>
 </head>
 <body>
-<header id="head" hidden><p id="question"></p><h1 id="title"></h1></header>
+<header id="head" hidden><p id="question"></p><h1 id="title"></h1><p id="filterline"></p></header>
 <main id="blocks" aria-live="polite"></main>
 <div id="pulse" aria-hidden="true"><i></i><i></i><i></i></div>
 <p id="error" role="alert"></p>
@@ -162,13 +188,13 @@ body.running #pulse { display: block; }
 "use strict";
 const canvas = (() => {
   const $ = id => document.getElementById(id);
-  let current = null, last = 0;
+  let current = null, last = 0, shown = {}, layout = { order: [], width: {} };
   const post = m => { const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.canvas; if (h) h.postMessage(m); else if (window.parent !== window) window.parent.postMessage({ canvas: m }, location.origin); };
   const demo = () => document.documentElement.hasAttribute('data-demo');
   const nearEnd = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
 
   function clear() {
-    current = null; last = 0;
+    current = null; last = 0; shown = {};
     $('blocks').replaceChildren(); $('next').replaceChildren();
     $('question').textContent = ''; $('title').textContent = ''; $('error').textContent = ''; $('transport').textContent = '';
     $('head').hidden = true; document.body.classList.remove('running');
@@ -183,27 +209,42 @@ const canvas = (() => {
     $('head').hidden = !(report.question || report.title);
     const follow = nearEnd();
     let added = null;
+    const web = window.parent !== window && !(window.webkit && window.webkit.messageHandlers);     // the web app: actions on the block
+    const want = new Set((report.blocks || []).map(b => String(b.seq)));
+    for (const old of [...$('blocks').children]) if (!want.has(old.dataset.seq)) { old.remove(); delete shown[old.dataset.seq]; }
     for (const b of report.blocks || []) {
-      if (b.seq <= last) continue;
+      const had = $('blocks').querySelector('[data-seq="' + b.seq + '"]');
+      if (had && shown[b.seq] === b.html) { had.dataset.cross = b.cross || ''; if (!b.cross) delete had.dataset.cross; continue; }
       const t = document.createElement('template'); t.innerHTML = b.html;
-      const el = t.content.firstElementChild; el.classList.add('enter'); el.dataset.seq = b.seq;
+      const el = t.content.firstElementChild; el.dataset.seq = b.seq; if (b.cross) el.dataset.cross = b.cross;
+      if (!had) el.classList.add('enter');
       const name = (el.querySelector('h3, h4') || {}).textContent || b.kind;
       const flag = document.createElement('button'); flag.type = 'button'; flag.className = 'flag';
       flag.setAttribute('aria-label', 'This is wrong: ' + name);
       flag.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4m0 1h11l-2 4 2 4H5"/></svg>';
       flag.addEventListener('click', () => post({ type: 'ask', text: 'This is wrong: "' + name.trim() + '". Check where this data comes from and how fresh it is, look for a better source, and report the problem to the owner of the data.' }));
       el.appendChild(flag);
-      if (window.parent !== window && !(window.webkit && window.webkit.messageHandlers)) {       // the web app: actions on the block
+      if (web) {
         const bar = document.createElement('div'); bar.className = 'acts';
         const act = (label, type) => { const x = document.createElement('button'); x.type = 'button'; x.textContent = label;
           x.addEventListener('click', ev => { ev.stopPropagation(); post({ type, seq: b.seq, title: name.trim(), chart: b.chart }); }); bar.appendChild(x); };
         if (b.chart) act('Other chart', 'alt');
         act('Ask about this', 'about'); act('Remove', 'remove');
         el.appendChild(bar);
+        arrangeTools(el);
       }
-      $('blocks').appendChild(el); last = b.seq; added = added || el;
+      if (had) had.replaceWith(el); else { $('blocks').appendChild(el); added = added || el; }
+      shown[b.seq] = b.html; last = Math.max(last, b.seq);
       el.querySelectorAll('.map[data-map]').forEach(drawMap);
     }
+    layout = { order: (report.layout || {}).order || [], width: (report.layout || {}).width || {} };
+    place();
+    const active = ((report.filters || {}).defs || []).map(d => {
+      const v = report.filters.values || {};
+      if (d.kind === 'choice') return v[d.param] ? d.name + ': ' + v[d.param] : '';
+      return v[d.param + '_from'] || v[d.param + '_to'] ? d.name + ': ' + (v[d.param + '_from'] || 'start') + ' to ' + (v[d.param + '_to'] || 'now') : '';
+    }).filter(Boolean);
+    $('filterline').textContent = active.length ? 'Filtered by ' + active.join('; ') : '';
     document.body.classList.toggle('running', report.status === 'running');
     document.body.classList.toggle('dash', report.mode === 'dashboard');
     $('error').textContent = report.status === 'failed' ? (report.error === 'cancelled' ? 'Stopped.' : 'This report did not finish: ' + (report.error || 'unknown error')) : '';
@@ -216,6 +257,122 @@ const canvas = (() => {
     }
     if (added && follow && !demo() && last > 1) added.scrollIntoView({ behavior: 'smooth', block: 'start' });
     post({ type: 'rendered', id: current, seq: last, status: report.status });
+  }
+
+  // ---- the arrangement of the tiles: order and width, changed in arrange mode and kept by the app ----
+  const tiles = () => [...$('blocks').children];
+  const ordered = () => tiles().sort((a, b) => Number(a.style.order || 0) - Number(b.style.order || 0));
+  function place() {
+    const rank = new Map(layout.order.map((s, i) => [String(s), i]));
+    tiles().forEach((el, i) => {
+      el.style.order = rank.has(el.dataset.seq) ? rank.get(el.dataset.seq) : layout.order.length + i;
+      const w = layout.width[el.dataset.seq];
+      el.classList.toggle('w2', w === 2); el.classList.toggle('wfull', w === 'full');
+      const size = el.querySelector('.arr [data-size]'); if (size) size.textContent = w === 2 ? 'Wide' : w === 'full' ? 'Full row' : 'Normal';
+    });
+  }
+  function keep(order) { layout.order = order.map(el => Number(el.dataset.seq)); place(); post({ type: 'layout', order: layout.order, width: layout.width }); }
+  function arrangeTools(el) {
+    const bar = document.createElement('div'); bar.className = 'arr';
+    const add = (label, title, run, attr) => { const x = document.createElement('button'); x.type = 'button'; x.textContent = label; x.title = title; x.setAttribute('aria-label', title); if (attr) x.setAttribute(attr, '');
+      x.addEventListener('click', ev => { ev.stopPropagation(); run(); }); bar.appendChild(x); };
+    const move = step => { const list = ordered(), i = list.indexOf(el), j = i + step; if (j < 0 || j >= list.length) return; list.splice(i, 1); list.splice(j, 0, el); keep(list); };
+    add('←', 'Move earlier', () => move(-1)); add('→', 'Move later', () => move(1));
+    add('Normal', 'Change the width of this tile', () => { const w = layout.width[el.dataset.seq]; const next = w === 2 ? 'full' : w === 'full' ? 1 : 2;
+      if (next === 1) delete layout.width[el.dataset.seq]; else layout.width[el.dataset.seq] = next; keep(ordered()); }, 'data-size');
+    el.appendChild(bar);
+    el.addEventListener('dragstart', ev => { if (!document.body.classList.contains('arrange')) { ev.preventDefault(); return; } dragged = el; el.classList.add('drag'); ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', el.dataset.seq); });
+    el.addEventListener('dragend', () => { el.classList.remove('drag'); tiles().forEach(t => t.classList.remove('over')); dragged = null; });
+    el.addEventListener('dragover', ev => { if (dragged && dragged !== el) { ev.preventDefault(); el.classList.add('over'); } });
+    el.addEventListener('dragleave', () => el.classList.remove('over'));
+    el.addEventListener('drop', ev => { if (!dragged || dragged === el) return; ev.preventDefault(); const list = ordered().filter(t => t !== dragged); list.splice(list.indexOf(el), 0, dragged); keep(list); });
+  }
+  let dragged = null;
+  function arrange(on) { document.body.classList.toggle('arrange', !!on); tiles().forEach(el => { el.draggable = !!on; }); $('tip').classList.remove('on'); }
+
+  // ---- export to PowerPoint: one slide per block, charts as pictures in the light theme, tables as real tables ----
+  const LIGHT = { '--ink': '#111827', '--ink-2': '#4B5563', '--surface': '#FFFFFF', '--chart-ink': '#111827', '--chart-axis-text': '#4B5563', '--chart-grid': '#E5E7EB', '--chart-paper': '#FFFFFF',
+    '--chart-1': '#4F46E5', '--chart-2': '#0D9488', '--chart-3': '#D97706', '--chart-4': '#E11D48', '--chart-5': '#0284C7', '--chart-6': '#5C6B73', '--chart-muted': '#C7CBD4', '--chart-total': '#6B7280',
+    '--chart-target': '#B91C1C', '--good': '#047857', '--bad': '#B91C1C', '--warn': '#B45309', '--accent': '#4F46E5' };
+  function colour(value, plot) {
+    const mode = plot && plot.classList.contains('up-good') ? ['--good', '--bad'] : plot && plot.classList.contains('up-bad') ? ['--bad', '--good'] : ['--chart-1', '--chart-3'];
+    const own = { '--chart-up': LIGHT[mode[0]], '--chart-down': LIGHT[mode[1]] };
+    let v = value, guard = 0;
+    while (v.includes('var(') && guard++ < 6) v = v.replace(/var\((--[\w-]+)(?:,([^()]*))?\)/g, (_, n, fb) => own[n] || LIGHT[n] || (fb || '').trim() || '#000000');
+    return v;
+  }
+  function picture(svg) {
+    const copy = svg.cloneNode(true), plot = svg.closest('.plot'), box = svg.viewBox.baseVal, scale = 3;
+    copy.querySelectorAll('title').forEach(t => t.remove());
+    for (const node of [copy, ...copy.querySelectorAll('*')]) for (const a of [...node.attributes]) if (a.value.includes('var(')) node.setAttribute(a.name, colour(a.value, plot));
+    copy.setAttribute('width', box.width * scale); copy.setAttribute('height', box.height * scale);
+    copy.setAttribute('font-family', 'Arial, Helvetica, sans-serif'); copy.removeAttribute('class'); copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    return new Promise((done, fail) => {
+      const img = new Image();
+      img.onload = () => { const c = document.createElement('canvas'); c.width = box.width * scale; c.height = box.height * scale; const g = c.getContext('2d');
+        g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0); done({ data: c.toDataURL('image/png'), ratio: box.width / box.height }); };
+      img.onerror = () => fail(new Error('a chart could not be drawn as a picture'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(copy));
+    });
+  }
+  function library() {
+    if (window.PptxGenJS) return Promise.resolve();
+    return new Promise((done, fail) => { const s = document.createElement('script'); s.src = '/vendor/pptxgen.bundle.js'; s.onload = done; s.onerror = () => fail(new Error('the PowerPoint library did not load')); document.head.appendChild(s); });
+  }
+  async function exportPptx(options) {
+    await library();
+    const pptx = new PptxGenJS(); pptx.layout = 'LAYOUT_WIDE';
+    const W = 13.33, INK = '111827', GREY = '4B5563', face = 'Arial', text = el => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+    const title = text($('title')) || 'Report', line = text($('filterline'));
+    const cover = pptx.addSlide();
+    cover.addText(title, { x: 0.6, y: 2.3, w: W - 1.2, h: 1.6, fontSize: 34, bold: true, color: INK, fontFace: face, valign: 'top' });
+    cover.addText([text($('question')), new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), line].filter(Boolean).join('\n'),
+      { x: 0.6, y: 4.0, w: W - 1.2, h: 1.6, fontSize: 14, color: GREY, fontFace: face, valign: 'top' });
+    const head = (slide, small, big) => {
+      if (small) slide.addText(small.toUpperCase(), { x: 0.5, y: 0.3, w: W - 1, h: 0.35, fontSize: 11, bold: true, color: GREY, fontFace: face, charSpacing: 1 });
+      if (big) slide.addText(big, { x: 0.5, y: small ? 0.62 : 0.4, w: W - 1, h: 0.9, fontSize: 20, bold: true, color: INK, fontFace: face, valign: 'top' });
+    };
+    const foot = (slide, el) => { const t = [text(el.querySelector('.source')), text(el.querySelector('.through'))].filter(Boolean).join('  ·  ');
+      if (t) slide.addText(t, { x: 0.5, y: 6.95, w: W - 1, h: 0.3, fontSize: 9, color: GREY, fontFace: face }); };
+    for (const el of ordered()) {
+      const slide = pptx.addSlide(), kind = ['kpi', 'insight', 'heading', 'table', 'chart'].find(k => el.classList.contains(k)) || 'other';
+      if (kind === 'heading') { slide.addText(text(el.querySelector('h2, h3')), { x: 0.6, y: 2.8, w: W - 1.2, h: 1.4, fontSize: 30, bold: true, color: INK, fontFace: face }); continue; }
+      if (kind === 'kpi') {
+        head(slide, 'Key numbers', null);
+        const cells = [...el.querySelectorAll('.kpi-cell')], cw = (W - 1 - 0.25 * (cells.length - 1)) / Math.max(1, cells.length);
+        cells.forEach((c, i) => { const x = 0.5 + i * (cw + 0.25);
+          slide.addShape(pptx.ShapeType.roundRect, { x, y: 2.2, w: cw, h: 2.4, fill: { color: 'F3F4F6' }, line: { color: 'E5E7EB', width: 0.75 }, rectRadius: 0.12 });
+          slide.addText(text(c.querySelector('.kpi-label')), { x: x + 0.2, y: 2.35, w: cw - 0.4, h: 0.5, fontSize: 13, color: GREY, fontFace: face, valign: 'top' });
+          slide.addText(text(c.querySelector('.kpi-value')), { x: x + 0.2, y: 2.9, w: cw - 0.4, h: 0.9, fontSize: cells.length > 3 ? 28 : 36, bold: true, color: INK, fontFace: face, fit: 'shrink' });
+          const d = c.querySelector('.delta'); if (d) { const sr = d.querySelector('.sr'), arrow = d.querySelector('.arrow');
+            const t = text(d).replace(text(sr), '').replace(text(arrow), '').trim(), up = /up/.test(text(sr));
+            slide.addText((up ? '▲ ' : '▼ ') + t, { x: x + 0.2, y: 3.85, w: cw - 0.4, h: 0.45, fontSize: 12, color: d.classList.contains('good') ? '047857' : d.classList.contains('bad') ? 'B91C1C' : GREY, fontFace: face }); } });
+        continue;
+      }
+      if (kind === 'insight') {
+        head(slide, null, text(el.querySelector('h4')));
+        const ps = [...el.querySelectorAll('.body p')].map(text).filter(Boolean);
+        slide.addText(ps.join('\n\n'), { x: 0.5, y: 1.6, w: W - 1, h: 4.8, fontSize: 18, color: INK, fontFace: face, valign: 'top' });
+        continue;
+      }
+      if (kind === 'table') {
+        head(slide, text(el.querySelector('h3')), null);
+        const cell = (c, bold) => ({ text: text(c), options: { bold, align: c.classList.contains('n') ? 'right' : 'left', color: INK, fontFace: face, fontSize: 12, fill: bold ? { color: 'F3F4F6' } : undefined } });
+        const rows = [...el.querySelectorAll('tr')].map((r, i) => [...r.children].map(c => cell(c, i === 0)));
+        if (rows.length) slide.addTable(rows, { x: 0.5, y: 1.0, w: W - 1, border: { type: 'solid', color: 'E5E7EB', pt: 0.75 }, autoPage: false });
+        foot(slide, el); continue;
+      }
+      head(slide, text(el.querySelector('h3')), text(el.querySelector('.takeaway')));
+      const svg = el.querySelector('.plot svg') || el.querySelector('svg.chart');
+      if (svg) { const p = await picture(svg), maxW = W - 1, maxH = 5.2, w = Math.min(maxW, maxH * p.ratio), h = w / p.ratio;
+        slide.addImage({ data: p.data, x: (W - w) / 2, y: 1.65 + (maxH - h) / 2, w, h }); }
+      else slide.addText('This view is interactive (a map). Open the page in the app to see it.', { x: 0.5, y: 3, w: W - 1, h: 1, fontSize: 16, color: GREY, fontFace: face });
+      foot(slide, el);
+    }
+    const name = (title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'report') + '.pptx';
+    if (options && options.base64) return pptx.write({ outputType: 'base64' });
+    await pptx.writeFile({ fileName: name });
+    return name;
   }
 
   // A map block: places as circles sized by their value, a route as a line, on street tiles. Pan, zoom, tap a place.
@@ -257,14 +414,14 @@ const canvas = (() => {
     const x = Math.min(window.innerWidth - tip.offsetWidth - 12, Math.max(12, e.pageX - tip.offsetWidth / 2));
     tip.style.left = x + 'px'; tip.style.top = (e.pageY - tip.offsetHeight - 14) + 'px'; tip.classList.add('on');
     const owner = mark.closest('.block');
-    if (owner) post({ type: 'mark', seq: Number(owner.dataset.seq), text: title.textContent, title: ((owner.querySelector('h3, h4') || {}).textContent || '').trim() });
+    if (owner && !document.body.classList.contains('arrange')) post({ type: 'mark', seq: Number(owner.dataset.seq), cross: owner.dataset.cross || null, text: title.textContent, title: ((owner.querySelector('h3, h4') || {}).textContent || '').trim() });
   });
   window.addEventListener('scroll', () => $('tip').classList.remove('on'), { passive: true });
 
   function fail(text) { $('transport').textContent = text || ''; }
 
   window.addEventListener('load', () => post({ type: 'ready' }));
-  return { render, clear, fail };
+  return { render, clear, fail, arrange, exportPptx };
 })();
 </script>
 <script>window.canvas = canvas;  // the web app reaches the page through its frame</script>

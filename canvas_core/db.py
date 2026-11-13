@@ -76,7 +76,7 @@ class MySQL:
             cur.execute(f"SET SESSION max_execution_time = {MAX_SECONDS * 1000}")
         return conn
 
-    def run(self, query: str, max_rows: int = MAX_ROWS) -> dict:
+    def run(self, query: str, max_rows: int = MAX_ROWS, params: dict | None = None) -> dict:
         """{"columns": [...], "rows": [[...]], "truncated": bool}. Raises QueryRefused for a query the guard or MySQL refuses."""
         import pymysql
         query = check_read_only(query)
@@ -84,7 +84,7 @@ class MySQL:
         try:
             with conn.cursor() as cur:
                 try:
-                    cur.execute(query)
+                    cur.execute(query, params) if params else cur.execute(query)
                 except pymysql.MySQLError as exc:
                     raise QueryRefused(f"MySQL refused the query: {exc.args[-1] if exc.args else exc}") from exc
                 columns = [d[0] for d in cur.description or []]

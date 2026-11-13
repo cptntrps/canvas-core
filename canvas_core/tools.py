@@ -2,7 +2,7 @@
 tells the model what to change. The rules are code, so a model cannot talk its way past them."""
 from __future__ import annotations
 
-from . import bind, cluster, render, store
+from . import bind, cluster, filters, render, store
 from .db import QueryRefused
 
 MAX_BLOCKS = {"answer": 5, "report": 24, "dashboard": 12}
@@ -24,6 +24,8 @@ SCHEMAS = [
      "parameters": {"type": "object", "properties": {"block": {"type": "object"}}, "required": ["block"]}},
     {"name": "find_groups", "description": "Cluster analysis: find groups of items that are alike on 2 to 6 measures. The query returns one row per item (a label column and the measure columns). You get the groups, their averages, example members and how strong the grouping is. Call it before you add a cluster block, so you can say what each group is.",
      "parameters": {"type": "object", "properties": {"sql": {"type": "string"}, "label": {"type": "string"}, "measures": {"type": "array", "items": {"type": "string"}}, "k": {"type": "integer"}}, "required": ["sql", "label", "measures"]}},
+    {"name": "set_filters", "description": "Dashboard only: give the page its filters (1 to 4), before the first block. Each filter is {name, param, kind} with kind \"choice\" (plus options_sql: a query that returns its values in one column) or \"date_range\". The blocks then follow a filter through optional clauses in their sql.",
+     "parameters": {"type": "object", "properties": {"filters": {"type": "array", "items": {"type": "object"}}}, "required": ["filters"]}},
     {"name": "finish", "description": "Close the report with 3 short follow-up questions.",
      "parameters": {"type": "object", "properties": {"suggestions": {"type": "array", "items": {"type": "string"}}}, "required": ["suggestions"]}},
 ]
@@ -80,10 +82,10 @@ def fill(database, spec: dict) -> dict:
         raise Refused(str(exc)) from exc
 
 
-def draw(spec: dict) -> dict:
-    drawn = {k: v for k, v in spec.items() if k not in ("sql", "bind", "repeat_reason", "cluster", "through_sql")}
+def draw(spec: dict, columns: int = 1) -> dict:
+    drawn = {k: v for k, v in spec.items() if k not in ("sql", "bind", "repeat_reason", "cluster", "through_sql", "unfiltered")}
     try:
-        return render.render_block(drawn)
+        return render.render_block(drawn, columns) if columns != 1 else render.render_block(drawn)
     except render.Refused as exc:
         raise Refused(str(exc)) from exc
 
@@ -91,7 +93,7 @@ def draw(spec: dict) -> dict:
 # Charts that draw the same rows. A block can change form inside its family with no model: the query stays, the
 # door fills the new form and draws it.
 SERIES = ("line", "area", "stacked_area", "grouped", "small_multiples", "bump")
-COMMON = ("kind", "chart", "title", "takeaway", "unit", "source", "sql", "bind", "data_through", "through_sql", "format", "decimals", "suffix", "repeat_reason")
+COMMON = ("kind", "chart", "title", "takeaway", "unit", "source", "sql", "bind", "data_through", "through_sql", "format", "decimals", "suffix", "repeat_reason", "unfiltered")
 
 
 def family(spec: dict) -> list[str]:
@@ -103,7 +105,7 @@ def family(spec: dict) -> list[str]:
     return list(SERIES) if chart in SERIES else []
 
 
-def convert(database, spec: dict, chart: str) -> tuple[dict, dict]:
+def convert(database, spec: dict, chart: str, columns: int = 1) -> tuple[dict, dict]:
     """(filled spec, drawing) of the same block as another chart of its family. Raises Refused when it does not fit."""
     if chart not in family(spec):
         raise Refused(f"this block cannot be drawn as {chart}")
@@ -111,7 +113,7 @@ def convert(database, spec: dict, chart: str) -> tuple[dict, dict]:
     base["chart"] = chart
     base["bind"] = LABEL_VALUE[chart] if chart in LABEL_VALUE else "series"
     filled = fill(database, base)
-    return filled, draw(filled)
+    return filled, draw(filled, columns)
 
 
 def alternatives(database, spec: dict) -> list[str]:
@@ -134,7 +136,7 @@ class Tools:
 
     def call(self, name: str, args: dict) -> str:
         handler = {"run_sql": self.run_sql, "set_title": self.set_title, "add_block": self.add_block, "finish": self.finish,
-                   "find_groups": self.find_groups}.get(name)
+                   "find_groups": self.find_groups, "set_filters": self.set_filters}.get(name)
         if handler is None:
             return f"REFUSED: there is no tool named {name}"
         try:
@@ -158,6 +160,34 @@ class Tools:
         except (QueryRefused, cluster.ClusterError) as exc:
             raise Refused(str(exc)) from exc
 
+    def set_filters(self, args: dict) -> str:
+        if self.mode != "dashboard":
+            raise Refused("page filters belong to a dashboard")
+        if store.block_count(self.rid) > 0:
+            raise Refused("set the filters before the first block: the blocks on the page were written without them")
+        try:
+            defs = filters.define(self.db, args.get("filters"))
+        except (filters.FilterError, QueryRefused) as exc:
+            raise Refused(str(exc)) from exc
+        store.set_filters(self.rid, {"defs": defs, "values": {}, "cross": {}})
+        names = ", ".join(":" + p for d in defs for p in filters.params_of(d))
+        return (f"ok: the page has {len(defs)} filter(s). Values you can use in a block's sql: {names}. Put each condition in an optional clause, "
+                "for example WHERE 1 = 1 [[AND d.name = :department]] [[AND l.spent_on >= :period_from]] [[AND l.spent_on <= :period_to]]. "
+                "A clause is left out while its filter is not set.")
+
+    def _follows(self, spec: dict) -> None:
+        """On a page with filters, a data block follows at least one of them or says why it does not."""
+        defs = store.get_filters(self.rid)["defs"]
+        if not defs or not spec.get("bind") or str(spec.get("unfiltered") or "").strip():
+            return
+        known = {p for d in defs for p in filters.params_of(d)}
+        named = filters.names_in(str(spec.get("sql") or ""))
+        if named - known:
+            raise Refused(f"the sql names filter value(s) this page does not have: {', '.join(':' + n for n in sorted(named - known))}. The page has: {', '.join(':' + n for n in sorted(known))}")
+        if not named:
+            raise Refused("this block follows none of the page filters. Add the optional clauses to its sql, for example "
+                          f"[[AND <column> = :{sorted(known)[0]}]], or add \"unfiltered\": \"<why it must show all the data>\".")
+
     def set_title(self, args: dict) -> str:
         title = " ".join(str(args.get("title") or "").split())
         if not title:
@@ -177,6 +207,7 @@ class Tools:
         count = store.block_count(self.rid)
         if count >= MAX_BLOCKS[self.mode]:
             raise Refused(f"the report has {count} blocks, the limit. Call finish.")
+        self._follows(spec)
         filled = fill(self.db, spec)
         rendered = draw(filled)
         kind = rendered["chart"]

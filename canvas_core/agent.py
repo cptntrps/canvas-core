@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from . import models, store
+from .filters import Filtered
 from .tools import SCHEMAS, Tools
 
 MAX_STEPS = {"answer": 16, "report": 60, "dashboard": 40}
@@ -29,12 +30,12 @@ def phrase(name: str, args: dict) -> str:
     if name == "add_block":
         block = args.get("block") if isinstance(args.get("block"), dict) else {}
         return "Draws " + str(block.get("title") or block.get("text") or block.get("kind") or "a block")[:60]
-    return {"set_title": "Names the report", "finish": "Finishes", "find_groups": "Looks for groups of similar items"}.get(name, "Works")
+    return {"set_title": "Names the report", "finish": "Finishes", "find_groups": "Looks for groups of similar items", "set_filters": "Sets the page filters"}.get(name, "Works")
 
 
 def run(settings, database, report_id: str, question: str, mode: str, context: str = "") -> None:
     stop = _cancel.setdefault(report_id, threading.Event())
-    tools = Tools(database, report_id, mode)
+    tools = Tools(Filtered(database, store.get_filters(report_id)["values"]), report_id, mode)
     started = time.monotonic()
     try:
         model = models.connect(settings, system_prompt(settings, database.catalog()), SCHEMAS)

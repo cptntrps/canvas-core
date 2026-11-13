@@ -6,7 +6,7 @@ import * as C from './charts.js';
 export class SpecError extends Error {}
 const fail = m => { throw new SpecError(m); };
 const esc = C.esc;
-export const WIDTH = 358;            // iPhone canvas column in points; the svg scales to the real width
+export let WIDTH = 358;              // one canvas column in points; the svg scales to the real width. A wide tile draws on 2 or 3 columns.
 
 export const CHARTS = ['line', 'area', 'stacked_area', 'bar', 'grouped', 'hbar', 'pareto', 'waterfall', 'diverging', 'dumbbell', 'slope',
   'stacked', 'donut', 'treemap', 'heatmap', 'calendar', 'histogram', 'boxplot', 'bullet', 'gauge', 'funnel', 'sankey', 'scatter', 'wordcloud',
@@ -595,8 +595,9 @@ function timeline(b) {
 
 const RENDER = { heading, kpi, insight, chart, table, map, timeline };
 
-export function renderBlock(spec, { today = null } = {}) {
+export function renderBlock(spec, { today = null, columns = 1 } = {}) {
   TODAY = today ? Date.parse(today + 'T00:00:00Z') : Date.now();
+  WIDTH = 358 * (columns === 2 || columns === 3 ? columns : 1);
   if (!isObj(spec)) fail('a block must be a JSON object');
   const kind = oneOf(spec, 'kind', KINDS);
   return { kind, chart: kind === 'chart' ? spec.chart : null, html: RENDER[kind](spec) };
@@ -609,7 +610,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;
   let out;
-  try { out = { ok: true, ...renderBlock(JSON.parse(input), { today: process.env.CANVAS_TODAY || null }) }; }
+  try { out = { ok: true, ...renderBlock(JSON.parse(input), { today: process.env.CANVAS_TODAY || null, columns: Number(process.env.CANVAS_COLUMNS || 1) }) }; }
   catch (e) {
     if (e instanceof SpecError || e instanceof SyntaxError) out = { ok: false, error: e.message };
     else { process.stderr.write(String(e && e.stack || e) + '\n'); process.exit(1); }

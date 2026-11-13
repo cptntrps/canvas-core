@@ -28,9 +28,11 @@ def shell() -> str:
                 .replace("/*LEAFLET_JS*/", (ROOT / "vendor/leaflet.js").read_text(encoding="utf-8").replace("</script>", "<\\/script>")))
 
 
-def render_block(spec: dict) -> dict:
-    """{"kind", "chart", "html"} or Refused."""
-    proc = subprocess.run([node(), str(ROOT / "render.mjs")], input=json.dumps(spec), capture_output=True, text=True, timeout=30, check=False)
+def render_block(spec: dict, columns: int = 1) -> dict:
+    """{"kind", "chart", "html"} or Refused. `columns` (1 to 3) is the width of the tile: a chart on a wide tile is
+    drawn on a wider plot, so its text keeps its size."""
+    env = {**os.environ, "CANVAS_COLUMNS": str(columns)} if columns != 1 else None
+    proc = subprocess.run([node(), str(ROOT / "render.mjs")], input=json.dumps(spec), capture_output=True, text=True, timeout=30, check=False, env=env)
     if proc.returncode != 0:
         raise RuntimeError(f"renderer failed ({proc.returncode}): {proc.stderr.strip()[-400:]}")
     out = json.loads(proc.stdout)

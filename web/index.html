@@ -18,7 +18,14 @@ aside h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; co
 .item:hover, .item.on { background: var(--bg); }
 .item small { display: block; color: var(--muted); font-size: 12px; }
 .empty { color: var(--muted); font-size: 13px; padding: 2px 16px; }
-main { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; min-height: 0; }
+main { display: grid; grid-template-rows: auto auto 1fr auto; min-width: 0; min-height: 0; }
+#filters { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; }
+#filters[hidden] { display: none; }
+#filters label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+#filters label.on { color: var(--accent); font-weight: 600; }
+#filters input[type=date] { border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; font: inherit; font-size: 13px; color: inherit; background: var(--panel); }
+#filters small { color: var(--muted); font-weight: 400; }
+button.act.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 #bar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); min-height: 52px; flex-wrap: wrap; }
 #state { color: var(--muted); font-size: 13px; flex: 1; min-width: 120px; }
 #state.warn { color: var(--warn); }
@@ -53,11 +60,15 @@ textarea { width: 100%; resize: none; border: 1px solid var(--line); border-radi
 <main>
   <div id="bar">
     <span id="state">Ask a question about the data.</span>
+    <button class="act" id="arrange" type="button" disabled hidden>Arrange</button>
+    <button class="act" id="pdf" type="button" disabled>PDF</button>
+    <button class="act" id="pptx" type="button" disabled>PowerPoint</button>
     <button class="act" id="refresh" type="button" disabled>Refresh data</button>
     <button class="act" id="pin" type="button" disabled>Pin</button>
     <button class="act" id="stop" type="button" disabled>Stop</button>
     <button class="act" id="remove" type="button" disabled>Delete</button>
   </div>
+  <div id="filters" hidden></div>
   <div id="mid"><iframe id="page" src="/shell" title="Report"></iframe><div id="strip" hidden></div></div>
   <form id="ask">
     <div id="modes" role="radiogroup" aria-label="Kind of request">
@@ -69,7 +80,7 @@ textarea { width: 100%; resize: none; border: 1px solid var(--line); border-radi
     <select id="layout" hidden aria-label="Dashboard layout"><option value="">Layout: auto</option></select>
     <textarea id="q" rows="1" placeholder="What were Travel and Events expenses this year?" aria-label="Your request"></textarea>
     <button class="act primary" id="send" type="submit">Ask</button>
-    <p id="hint">Answer: one question. Report: several questions at once, one section each. Dashboard: a standing view you refresh without the AI. On any chart: "Other chart" shows it in another form; click a bar or a slice to go deeper.</p>
+    <p id="hint">Answer: one question. Report: several questions at once, one section each. Dashboard: a standing view you refresh without the AI. On any chart: "Other chart" shows it in another form; click a bar or a slice to go deeper or to filter the page. A dashboard has filters at the top, and "Arrange" moves and sizes its tiles.</p>
   </form>
 </main>
 <script>
@@ -83,7 +94,12 @@ window.addEventListener('message', e => {
   if (e.origin !== location.origin || !e.data || !e.data.canvas) return;
   const m = e.data.canvas;
   if (m.type === 'ask') { $('q').value = m.text; ask(m.text, 'answer', current); }
+  if (m.type === 'layout') api('/api/reports/' + current + '/layout', json({ order: m.order, width: m.width })).then(() => poll()).catch(err => state(err.message, true));
   if (m.type === 'mark') strip('<b></b><span></span>', el => { el.children[0].textContent = m.text; el.children[1].textContent = ' in "' + m.title + '"';
+    const f = m.cross && last && last.filters.defs.find(d => d.param === m.cross);
+    const value = f && f.options.filter(o => m.text.startsWith(o + ':')).sort((a, b) => b.length - a.length)[0];
+    if (value != null) { const on = last.filters.values[f.param] === value;
+      button(el, on ? 'Clear the filter' : 'Filter the page to ' + value, () => applyFilters({ ...last.filters.values, [f.param]: on ? null : value }, on ? {} : { [f.param]: m.seq })); }
     button(el, 'Why? Go deeper', () => ask('In "' + m.title + '", explain this value and what drives it: ' + m.text, 'answer', current));
     button(el, 'Add a chart about it', () => { pick('extend'); $('q').value = 'For "' + m.text + '" (from "' + m.title + '"): '; $('q').focus(); hide(); }); });
   if (m.type === 'about') { pick(last && last.mode === 'dashboard' ? 'extend' : 'answer'); $('q').value = 'About "' + m.title + '": '; $('q').focus(); }
@@ -97,12 +113,44 @@ function hide() { $('strip').hidden = true; }
 function strip(html, fill) { const el = $('strip'); el.innerHTML = html; fill(el); button(el, 'Close', hide); el.hidden = false; }
 function button(el, label, run) { const b = document.createElement('button'); b.type = 'button'; b.className = 'act'; b.textContent = label; b.addEventListener('click', () => { hide(); run(); }); el.appendChild(b); }
 function pick(mode) { const r = document.querySelector('input[name=mode][value=' + mode + ']'); if (r && !r.closest('label').hidden) { r.checked = true; $('layout').hidden = mode !== 'dashboard'; } }
-function reload() { hide(); if (ready) frame.contentWindow.canvas.clear(); clearTimeout(timer); poll(); }
+function reload() { hide(); clearTimeout(timer); poll(); }
+const json = body => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function applyFilters(values, cross) {
+  state('Applies the filter'); const keep = {}; for (const [p, s] of Object.entries({ ...(last.filters.cross || {}), ...(cross || {}) })) if (values[p] && (p in (cross || {}) || values[p] === last.filters.values[p])) keep[p] = s;
+  try { const done = await api('/api/reports/' + current + '/filters', json({ values, cross: keep })); await poll();
+        if (done.empty.length) state(done.empty.length + ' block(s) have too little data under this filter.', true);
+        if (done.kept_old.length) state(done.kept_old.length + ' block(s) could not follow the filter and kept their data: ' + done.kept_old[0].error, true); }
+  catch (err) { state(err.message, true); }
+}
+function filterBar(r) {
+  const el = $('filters'), f = r && r.filters, key = r ? r.id + JSON.stringify(f) + r.status : '';
+  if (el.dataset.key === key) return; el.dataset.key = key;
+  el.replaceChildren(); el.hidden = !(f && f.defs.length && r.status !== 'running'); if (el.hidden) return;
+  const data = r.blocks.filter(b => b.kind !== 'insight' && b.kind !== 'heading').length;
+  const change = (param, value) => { const values = { ...f.values, [param]: value || null }; applyFilters(values, null); };
+  for (const d of f.defs) {
+    const label = document.createElement('label'); label.append(d.name + ' ');
+    if (d.kind === 'choice') {
+      const s = document.createElement('select'); s.append(new Option('All', ''));
+      for (const o of d.options) s.append(new Option(o, o));
+      s.value = f.values[d.param] || ''; s.addEventListener('change', () => change(d.param, s.value)); label.append(s); label.classList.toggle('on', !!s.value);
+    } else for (const end of ['from', 'to']) {
+      const i = document.createElement('input'); i.type = 'date'; i.value = f.values[d.param + '_' + end] || ''; i.setAttribute('aria-label', d.name + ' ' + end);
+      i.addEventListener('change', () => change(d.param + '_' + end, i.value)); label.append(i); if (i.value) label.classList.add('on');
+    }
+    if (d.follows < data) { const n = document.createElement('small'); n.textContent = d.follows + ' of ' + data + ' blocks follow it'; label.append(n); }
+    el.append(label);
+  }
+  if (Object.keys(f.values).length) { const b = document.createElement('button'); b.type = 'button'; b.className = 'act'; b.textContent = 'Clear filters'; b.addEventListener('click', () => applyFilters({}, {})); el.append(b); }
+}
 function state(text, warn) { $('state').textContent = text; $('state').classList.toggle('warn', !!warn); }
 function buttons(r) {
   const running = r && r.status === 'running';
   $('stop').disabled = !running; $('pin').disabled = !r || running; $('remove').disabled = !r || running; $('refresh').disabled = !r || running;
   $('pin').textContent = r && r.pinned ? 'Unpin' : 'Pin'; $('send').disabled = !!running;
+  $('pdf').disabled = $('pptx').disabled = $('arrange').disabled = !r || running; $('arrange').hidden = !r || r.mode !== 'dashboard';
+  if ($('arrange').hidden || running) setArrange(false);
+  filterBar(r);
   $('addmode').hidden = !r || running; if ($('addmode').hidden && document.querySelector('input[name=mode]:checked').value === 'extend') pick('answer');
 }
 async function lists() {
@@ -129,7 +177,9 @@ async function poll() {
     else { state(r.status === 'ok' ? (bad ? bad + ' block(s) kept their old data at the last refresh.' : (r.refreshed_at ? 'Data refreshed ' + new Date(r.refreshed_at).toLocaleString() : 'Done.')) : 'This report did not finish: ' + (r.error || 'unknown error'), r.status !== 'ok' || bad); lists(); }
   } catch (err) { state('The app does not answer: ' + err.message, true); timer = setTimeout(poll, 3000); }
 }
-function open(id) { clearTimeout(timer); current = id; last = null; if (ready) frame.contentWindow.canvas.clear(); poll(); lists(); }
+function setArrange(on) { $('arrange').classList.toggle('on', on); $('arrange').textContent = on ? 'Done arranging' : 'Arrange'; if (ready) frame.contentWindow.canvas.arrange(on);
+  if (on) state('Drag a tile onto another to move it, or use its arrows. The width button changes its size.'); }
+function open(id) { clearTimeout(timer); current = id; last = null; setArrange(false); if (ready) frame.contentWindow.canvas.clear(); poll(); lists(); }
 async function ask(text, mode, parent) {
   text = text.trim(); if (!text) return;
   if (mode === 'extend' && current) {
@@ -149,7 +199,11 @@ $('pin').addEventListener('click', async () => { await api('/api/reports/' + cur
 $('remove').addEventListener('click', async () => { if ($('remove').dataset.sure !== current) { $('remove').dataset.sure = current; $('remove').textContent = 'Delete: press again'; return; }
   await api('/api/reports/' + current, { method: 'DELETE' }); $('remove').textContent = 'Delete'; current = null; last = null; frame.contentWindow.canvas.clear(); buttons(null); state('Deleted.'); lists(); });
 $('refresh').addEventListener('click', async () => { state('Runs the queries again'); $('refresh').disabled = true;
-  try { await api('/api/reports/' + current + '/refresh', { method: 'POST' }); frame.contentWindow.canvas.clear(); } catch (err) { state(err.message, true); } poll(); });
+  try { await api('/api/reports/' + current + '/refresh', { method: 'POST' }); } catch (err) { state(err.message, true); } poll(); });
+$('arrange').addEventListener('click', () => setArrange(!$('arrange').classList.contains('on')));
+$('pdf').addEventListener('click', () => { setArrange(false); state('In the print window, choose "Save as PDF".'); frame.contentWindow.focus(); frame.contentWindow.print(); });
+$('pptx').addEventListener('click', async () => { setArrange(false); state('Builds the PowerPoint file'); $('pptx').disabled = true;
+  try { state('Saved ' + await frame.contentWindow.canvas.exportPptx() + ' (one slide per block).'); } catch (err) { state('The PowerPoint export failed: ' + err.message, true); } $('pptx').disabled = false; });
 document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => { $('layout').hidden = document.querySelector('input[name=mode]:checked').value !== 'dashboard'; }));
 api('/api/layouts').then(d => { for (const l of d.layouts) { const o = document.createElement('option'); o.value = l.key; o.textContent = l.name; o.title = l.use; $('layout').appendChild(o); } });
 lists();

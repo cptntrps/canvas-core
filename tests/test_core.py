@@ -1,4 +1,6 @@
 """The rules that keep a report honest: the read-only guard, the binding of a query to a block, and the tool rules."""
+import json
+
 import pytest
 
 from canvas_core import bind, db, store, tools
@@ -391,3 +393,140 @@ def test_group_names_follow_the_group_and_not_its_position(desk):
     with pytest.raises(tools.Refused, match="cluster_sizes"):
         tools.fill(ClusterDB(), {"kind": "chart", "chart": "line", "sql": "SELECT ...", "bind": "cluster_sizes", "cluster": ask})
     assert tools.family({"kind": "chart", "chart": "hbar", "bind": "cluster_sizes"}) == [], "a cluster view does not change form"
+
+
+# ---- page filters ----------------------------------------------------------------------------------------------
+
+from canvas_core import filters  # noqa: E402
+
+
+def test_a_clause_is_kept_only_while_its_filter_is_set_and_the_value_is_bound_not_pasted():
+    sql = "SELECT a FROM t WHERE x LIKE '50%' [[AND d = :department]] [[AND day >= :period_from]] [[AND day <= :period_to]]"
+    assert filters.expand(sql, {}) == ("SELECT a FROM t WHERE x LIKE '50%'   ", None)
+    text, params = filters.expand(sql, {"department": "Sales'; DROP TABLE t; --", "period_from": "2026-01-01"})
+    assert text == "SELECT a FROM t WHERE x LIKE '50%%' AND d = %(department)s AND day >= %(period_from)s "
+    assert params == {"department": "Sales'; DROP TABLE t; --", "period_from": "2026-01-01"}, "the value never enters the query text"
+    assert filters.names_in(sql) == {"department", "period_from", "period_to"}
+    assert filters.expand("SELECT '10:30' AS t", {"department": "x"}) == ("SELECT '10:30' AS t", None)
+
+
+class OptionsDB(FakeDB):
+    def run(self, query, max_rows=500, params=None):
+        self.queries.append((query, params) if params else query)
+        if "FROM departments" in query:
+            return {"columns": ["name"], "rows": [["Travel"], ["Events"], ["Sales"]], "truncated": False}
+        if "vendors" in query:          # another dimension: its rows carry the department they belong to
+            rows = [r[:2] for r in [["Delta", 70.0, "Travel"], ["Hilton", 50.0, "Travel"], ["GES", 80.0, "Events"]] if not params or r[2] == params.get("department")]
+            return {"columns": ["label", "value"], "rows": rows, "truncated": False}
+        rows = [["Travel", 120.0], ["Events", 80.0]]
+        if params and params.get("department"):
+            rows = [r for r in rows if r[0] == params["department"]]
+        return {"columns": ["label", "value"], "rows": rows, "truncated": False}
+
+
+FILTERS = [{"name": "Department", "param": "department", "kind": "choice", "options_sql": "SELECT name FROM departments"},
+           {"name": "Period", "param": "period", "kind": "date_range"}]
+FCHART = dict(CHART, sql="SELECT label, value FROM v WHERE 1 = 1 [[AND label = :department]]")
+
+
+def test_the_filter_set_is_checked_and_a_dashboard_block_follows_a_filter_or_says_why(desk):
+    make, _, _ = desk
+    t, rid = make("dashboard")
+    t.db = OptionsDB()
+    assert "belong to a dashboard" in make("report")[0].call("set_filters", {"filters": FILTERS})
+    assert "lower-case name" in t.call("set_filters", {"filters": [dict(FILTERS[0], param="Dept Name")]})
+    assert "needs options_sql" in t.call("set_filters", {"filters": [{"name": "D", "param": "d", "kind": "choice"}]})
+    assert t.call("set_filters", {"filters": FILTERS}).startswith("ok")
+    assert store.get_filters(rid)["defs"][0]["options"] == ["Travel", "Events", "Sales"]
+    assert "follows none of the page filters" in t.call("add_block", {"block": dict(CHART)})
+    assert "does not have: :region" in t.call("add_block", {"block": dict(CHART, sql="SELECT label, value FROM v [[WHERE r = :region]]")})
+    assert t.call("add_block", {"block": dict(FCHART)}).startswith("ok")
+    assert t.call("add_block", {"block": dict(CHART, chart="donut", bind="slices", unfiltered="company total")}).startswith("ok")
+    assert "before the first block" in t.call("set_filters", {"filters": FILTERS})
+
+
+def test_filter_values_are_checked_against_the_filter_set():
+    defs = [dict(FILTERS[0], options=["Travel", "Events"]), FILTERS[1]]
+    assert filters.clean(defs, {"department": "Travel", "period_from": "2026-01-01", "period_to": ""}) == {"department": "Travel", "period_from": "2026-01-01"}
+    for bad, words in (({"department": "Nope"}, "not a value"), ({"period_to": "Jan 1"}, "YYYY-MM-DD"), ({"other": "x"}, "unknown filter")):
+        with pytest.raises(filters.FilterError, match=words):
+            filters.clean(defs, bad)
+
+
+@pytest.fixture
+def site(tmp_path, monkeypatch):
+    from canvas_core import app as web, config
+    monkeypatch.setattr(tools.render, "render_block", lambda spec, columns=1: {"kind": spec["kind"], "chart": spec.get("chart"), "html": "<section>" + json.dumps(spec) + "</section>"})
+    settings = config.Settings(root=tmp_path)
+    database = OptionsDB()
+    client = web.create_app(settings, database).test_client()
+    rid = store.create_report("q", "dashboard")
+    t = tools.Tools(filters.Filtered(database, {}), rid, "dashboard")
+    assert t.call("set_filters", {"filters": FILTERS}).startswith("ok")
+    assert t.call("add_block", {"block": dict(FCHART)}).startswith("ok")                                   # 1: by department, clickable
+    assert t.call("add_block", {"block": dict(FCHART, chart="donut", bind="slices", sql="SELECT label, value FROM vendors WHERE 1 = 1 [[AND dept = :department]]")}).startswith("ok")     # 2: another dimension
+    assert t.call("finish", {"suggestions": ["a"]}).startswith("ok")
+    return client, rid, database
+
+
+def test_a_filter_narrows_every_block_that_follows_it_and_a_click_keeps_its_own_chart_whole(site):
+    client, rid, database = site
+    page = client.get(f"/api/reports/{rid}").json
+    assert [d["follows"] for d in page["filters"]["defs"]] == [2, 0] and "spec" not in page["blocks"][0]
+    assert [b["cross"] for b in page["blocks"]] == ["department", None], "labels that are filter values make a chart clickable"
+    assert client.post(f"/api/reports/{rid}/filters", json={"values": {"department": "Nope"}}).status_code == 422
+    done = client.post(f"/api/reports/{rid}/filters", json={"values": {"department": "Travel"}, "cross": {"department": 1}})
+    assert done.json == {"refreshed": 2, "kept_old": [], "empty": []}
+    blocks = store.get_report(rid, with_spec=True)["blocks"]
+    assert [d["label"] for d in blocks[0]["spec"]["data"]] == ["Travel", "Events"], "the chart that was clicked stays whole"
+    assert '"highlight": [0]' in blocks[0]["html"] and "highlight" not in blocks[0]["spec"]
+    assert [d["label"] for d in blocks[1]["spec"]["slices"]] == ["Delta", "Hilton"], "the other chart shows the filtered rows"
+    client.post(f"/api/reports/{rid}/filters", json={"values": {"department": "Events"}})       # picked in the bar, not by a click
+    blocks = store.get_report(rid, with_spec=True)["blocks"]
+    assert len(blocks[0]["spec"]["data"]) == 2 and '"highlight": [1]' in blocks[0]["html"], "a chart of the filter's own dimension stays whole and marks the pick"
+    assert [d["label"] for d in blocks[1]["spec"]["slices"]] == ["GES"]
+    assert database.queries[-1][1] == {"department": "Events"}
+    client.post(f"/api/reports/{rid}/filters", json={"values": {}})
+    assert len(store.get_report(rid, with_spec=True)["blocks"][1]["spec"]["slices"]) == 3
+
+
+def test_the_arrangement_of_the_tiles_is_kept(site):
+    client, rid, _ = site
+    assert client.post(f"/api/reports/{rid}/layout", json={"order": [2, 1, 9], "width": {"1": 2, "2": "full", "7": 2, "x": 1}}).status_code == 200
+    assert client.get(f"/api/reports/{rid}").json["layout"] == {"order": [2, 1], "width": {"1": 2, "2": "full"}}
+    assert client.post(f"/api/reports/{rid}/layout", json={"order": [1, 1]}).status_code == 422
+
+
+def test_an_older_store_file_gains_the_new_columns(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE report (id TEXT PRIMARY KEY, parent_id TEXT, mode TEXT NOT NULL, question TEXT NOT NULL, title TEXT, status TEXT NOT NULL DEFAULT 'running', "
+               "activity TEXT, error TEXT, suggestions TEXT NOT NULL DEFAULT '[]', rev INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, "
+               "finished_at TEXT, refreshed_at TEXT, deleted INTEGER NOT NULL DEFAULT 0)")
+    db.execute("INSERT INTO report (id, mode, question, created_at) VALUES ('r1', 'answer', 'q', '2026-01-01')")
+    db.commit(); db.close()
+    store.open_store(path)
+    assert store.get_report("r1")["filters"] == {} and store.get_filters("r1")["defs"] == []
+
+
+def test_a_block_with_too_little_data_under_a_filter_says_so_and_never_keeps_other_numbers(site, monkeypatch):
+    client, rid, _ = site
+
+    def picky(spec, columns=1):
+        if len(spec.get("slices", [0, 0])) < 2:
+            raise tools.render.Refused("slices needs at least 2 items; it has 1")
+        return {"kind": spec["kind"], "chart": spec.get("chart"), "html": "<section>drawn</section>"}
+    monkeypatch.setattr(tools.render, "render_block", picky)
+    done = client.post(f"/api/reports/{rid}/filters", json={"values": {"department": "Events"}}).json
+    assert done["empty"] == [2] and done["kept_old"] == []
+    html = store.get_report(rid)["blocks"][1]["html"]
+    assert "Nothing to show under this filter" in html and "at least 2 items" in html
+
+
+def test_a_chart_on_a_wide_tile_is_drawn_on_a_wider_plot():
+    from canvas_core import render
+    spec = {"kind": "chart", "chart": "line", "title": "T", "takeaway": "A finding", "source": "s", "data_through": "2026-11-01",
+            "labels": ["Jan", "Feb", "Mar"], "series": [{"name": "A", "values": [3, 5, 4]}]}
+    assert 'viewBox="0 0 358 ' in render.render_block(spec)["html"]
+    assert 'viewBox="0 0 716 ' in render.render_block(spec, 2)["html"] and 'viewBox="0 0 1074 ' in render.render_block(spec, 3)["html"]
