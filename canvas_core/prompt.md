@@ -52,6 +52,13 @@ GROUP BY c.name ORDER BY value DESC LIMIT 10
 - A chart of the filter's own dimension (spend by department, as `hbar`, `bar`, `donut`, `treemap`, `pareto` or `bubbles`, with the same names as `options_sql`) becomes clickable: build one such chart per choice filter.
 - `run_sql` accepts the clauses too (they are left out), so test the exact text you will bind.
 
+# How a dashboard looks
+The title of a dashboard is its subject in 2 to 5 words ("Travel and Events spend"), not a finding: it stays true when the numbers change.
+A dashboard fits one screen: a row of key numbers, then 5 to 8 tiles in a grid of 3 columns. The reader scans it; nobody reads sentences there.
+- The `kpi` block comes first and holds 4 to 6 numbers. Give each its change (`delta`, `delta_label`, `good_when`) and its recent series as `spark`: one text column of numbers joined by commas, oldest first, for example `(SELECT GROUP_CONCAT(t.v ORDER BY t.m) FROM (SELECT DATE_FORMAT(spent_on, '%Y-%m') AS m, ROUND(SUM(amount)) AS v FROM expense_lines WHERE spent_on >= CURDATE() - INTERVAL 12 MONTH GROUP BY m) t) AS spark`.
+- A tile `title` is a label of 2 to 4 words ("By department", "Spend per month", "Top vendors"): 28 characters at most. The `takeaway` is one short line (90 characters at most) that says what the tile shows and stays true when the numbers change.
+- Mix the tiles: one trend with 2 to 4 series (`line`, `stacked_area` or `combo`), one or two rankings (`hbar`), one composition (`donut` or `treemap`), one matrix of two dimensions (`heatmap`), and one `table` of the largest lines (5 columns, 8 rows at most). Never the same form three times.
+
 # Finding groups (cluster analysis)
 Use it when the request asks for segments, groups, types, profiles, "which ones are alike" or "which ones stand out", and the items can be described by 2 to 6 numbers each (per vendor: total spend, number of invoices, average invoice; per employee: trips, spend per trip, share of spend on events).
 1. Write one query that returns ONE ROW PER ITEM: a label column and the measure columns, every measure numeric and never NULL, 8 to 499 items. Prefer rates and averages over raw totals where both exist, so size alone does not make the groups.

@@ -494,6 +494,11 @@ def test_the_arrangement_of_the_tiles_is_kept(site):
     client, rid, _ = site
     assert client.post(f"/api/reports/{rid}/layout", json={"order": [2, 1, 9], "width": {"1": 2, "2": "full", "7": 2, "x": 1}}).status_code == 200
     assert client.get(f"/api/reports/{rid}").json["layout"] == {"order": [2, 1], "width": {"1": 2, "2": "full"}}
+    assert client.post(f"/api/reports/{rid}/layout", json={"theme": "paper"}).status_code == 200
+    assert client.get(f"/api/reports/{rid}").json["layout"] == {"order": [2, 1], "width": {"1": 2, "2": "full"}, "theme": "paper"}, "a part that is not sent stays"
+    assert client.post(f"/api/reports/{rid}/layout", json={"order": [1, 2]}).status_code == 200
+    assert client.get(f"/api/reports/{rid}").json["layout"]["theme"] == "paper"
+    assert client.post(f"/api/reports/{rid}/layout", json={"theme": "neon"}).status_code == 422
     assert client.post(f"/api/reports/{rid}/layout", json={"order": [1, 1]}).status_code == 422
 
 
@@ -530,3 +535,17 @@ def test_a_chart_on_a_wide_tile_is_drawn_on_a_wider_plot():
             "labels": ["Jan", "Feb", "Mar"], "series": [{"name": "A", "values": [3, 5, 4]}]}
     assert 'viewBox="0 0 358 ' in render.render_block(spec)["html"]
     assert 'viewBox="0 0 716 ' in render.render_block(spec, 2)["html"] and 'viewBox="0 0 1074 ' in render.render_block(spec, 3)["html"]
+
+
+def test_a_kpi_takes_its_recent_series_from_one_text_column():
+    out = bind.apply({"kind": "kpi", "bind": "items"}, result(["label", "value", "spark"], [["Spend", 10.0, "690,720, 810"], ["Lines", 3, None], ["Avg", 2, "5,6"]]))
+    assert out["items"][0]["spark"] == [690.0, 720.0, 810.0] and "spark" not in out["items"][1] and "spark" not in out["items"][2]
+    with pytest.raises(bind.BindError, match="joined by commas"):
+        bind.apply({"kind": "kpi", "bind": "items"}, result(["label", "value", "spark"], [["Spend", 10.0, "a,b,c"]]))
+
+
+def test_text_a_model_escaped_twice_reaches_the_page_as_the_reader_should_see_it(desk):
+    make, _, _ = desk
+    t, rid = make()
+    assert t.call("set_title", {"title": "T\\u0026E spend"}) == "ok"
+    assert store.get_report(rid)["title"] == "T&E spend"

@@ -139,6 +139,44 @@ body.running #pulse { display: block; }
 #next button::after { content: "\2192"; position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-weight: 400; opacity: .7; }
 #next button:active { opacity: .6; }
 
+/* ---- the dashboard view (wide screens): one screen, a KPI row, a grid of flat tiles, one theme ---- */
+body.dash, body.dash[data-theme="teal"] { --bg: #F3F6F7; --ink: #14262B; --ink-2: #5A6B70; --surface: #FFFFFF; --hairline: rgba(20, 38, 43, .11); --accent: #177E89; --note-bg: rgba(23, 126, 137, .10);
+  --chart-1: #177E89; --chart-2: #6C7A89; --chart-3: #E0A458; --chart-4: #D9705B; --chart-5: #7CC6CE; --chart-6: #A3B1BC; --chart-grid: #E7ECEE; --chart-muted: #D3DCDF; --chart-total: #7B8A90;
+  --chart-ink: #14262B; --chart-axis-text: #5A6B70; --chart-paper: #FFFFFF; --good: #1E8E5A; --bad: #C4453A; --warn: #B4690E; color-scheme: light; }
+body.dash[data-theme="indigo"] { --bg: #F4F5FA; --ink: #171A2E; --ink-2: #5C6078; --hairline: rgba(23, 26, 46, .11); --accent: #4F46E5; --note-bg: rgba(79, 70, 229, .09);
+  --chart-1: #4F46E5; --chart-2: #64748B; --chart-3: #F0A93B; --chart-4: #E0567A; --chart-5: #8FA2F5; --chart-6: #A9B1C6; --chart-grid: #E8EAF3; --chart-muted: #D5D8E6; --chart-ink: #171A2E; --chart-axis-text: #5C6078; }
+body.dash[data-theme="paper"] { --bg: #F6F1EA; --ink: #2A241D; --ink-2: #6E6357; --surface: #FFFDFA; --hairline: rgba(42, 36, 29, .12); --accent: #B5652B; --note-bg: rgba(181, 101, 43, .10);
+  --chart-1: #1F2A44; --chart-2: #B5652B; --chart-3: #7A8CA6; --chart-4: #D9A65B; --chart-5: #5E7F6B; --chart-6: #B9B2A6; --chart-grid: #ECE4D8; --chart-muted: #DDD4C6; --chart-ink: #2A241D; --chart-axis-text: #6E6357; --chart-paper: #FFFDFA; }
+@media screen and (min-width: 1000px) {
+  html:has(body.dash) { height: 100%; }
+  body.dash { height: 100%; max-width: none; margin: 0; padding: 14px 16px; background: var(--bg); font-size: 14px; display: flex; flex-direction: column; overflow-y: auto; }
+  body.dash #head, body.dash #next, body.dash .flag { display: none !important; }
+  body.dash #blocks { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto; grid-auto-rows: minmax(210px, 1fr); gap: 12px; align-items: stretch; }
+  body.dash .block { margin: 0; min-width: 0; min-height: 0; border-radius: 10px; box-shadow: 0 0 0 1px var(--hairline); }
+  body.dash .block.kpi { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; box-shadow: none; }
+  body.dash .kpi-cell, body.dash .kpi-cell.wide { grid-column: auto; border-radius: 10px; padding: 10px 14px 10px; box-shadow: 0 0 0 1px var(--hairline); border-top: 3px solid var(--accent); }
+  body.dash .kpi-label { font-size: 12px; } body.dash .kpi-value, body.dash .kpi-cell.wide .kpi-value { font-size: 25px; font-weight: 700; margin-top: 1px; }
+  body.dash .delta { font-size: 12px; margin-top: 1px; }
+  body.dash .kpi-cell.wide.has-spark { padding-right: 14px; } body.dash .kpi-cell .spark, body.dash .kpi-cell.wide .spark { position: static; width: 100%; margin-top: 6px; }
+  body.dash .kpi-cell .spark svg { height: 30px; }
+  body.dash .block.chart, body.dash .block.table, body.dash .block.insight { display: flex; flex-direction: column; padding: 12px 14px 8px; }
+  body.dash .block.insight { flex-direction: row; }
+  body.dash .block.chart h3, body.dash .block.table h3 { font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--ink); padding-right: 8px; }
+  body.dash .takeaway { font-size: 12px; font-weight: 400; line-height: 1.3; color: var(--ink-2); margin: 2px 0 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  body.dash .plot { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  body.dash .plot svg { width: 100%; height: 100%; }
+  body.dash .source { display: none; } body.dash .through { font-size: 10px; margin-top: 4px; opacity: .8; } body.dash .through.stale { font-size: 11px; padding: 3px 8px; }
+  body.dash .block.table { overflow: auto; } body.dash .block.table table { font-size: 12.5px; margin-top: 4px; }
+  body.dash .block.table th { font-size: 11px; padding: 4px 8px 4px 0; position: sticky; top: 0; background: var(--surface); } body.dash .block.table td { padding: 5px 8px 5px 0; }
+  body.dash .map { height: 100%; min-height: 160px; border-radius: 8px; }
+  body.dash .acts { position: absolute; top: 6px; right: 8px; margin: 0; padding: 2px; gap: 0; flex-wrap: nowrap; background: var(--surface); border-radius: 999px; box-shadow: 0 0 0 1px var(--hairline), 0 4px 12px rgba(0, 0, 0, .10); opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 4; }
+  body.dash .block:hover .acts, body.dash .acts:focus-within { opacity: 1; pointer-events: auto; }
+  body.dash .acts button { border: 0; font-size: 11px; padding: 3px 9px; }
+  body.dash.arrange .block { border-radius: 10px; }
+  body.dash .block.fill2 { grid-column: span 2; } body.dash .block.fill3 { grid-column: 1 / -1; }
+  body.dash #pulse { border-radius: 10px; margin-top: 12px; }
+}
+
 /* ---- arrange mode, cross-filter, print (the web app's dashboards) ---- */
 @media (min-width: 900px) { body.dash .block.w2 { grid-column: span 2; } body.dash .block.wfull { grid-column: 1 / -1; } }
 .arr { display: none; position: absolute; right: 10px; top: 8px; z-index: 5; gap: 4px; background: var(--surface); border-radius: 999px; padding: 3px; box-shadow: 0 0 0 1px var(--hairline), 0 4px 14px rgba(0,0,0,.16); }
@@ -246,7 +284,9 @@ const canvas = (() => {
     }).filter(Boolean);
     $('filterline').textContent = active.length ? 'Filtered by ' + active.join('; ') : '';
     document.body.classList.toggle('running', report.status === 'running');
-    document.body.classList.toggle('dash', report.mode === 'dashboard');
+    document.body.classList.toggle('dash', report.mode === 'dashboard'); place();
+    if (report.mode === 'dashboard') document.body.dataset.theme = (report.layout || {}).theme || 'teal'; else delete document.body.dataset.theme;
+    for (const el of tiles()) { const src = el.querySelector('.source'); if (src && !el.title) el.querySelector('h3') && (el.querySelector('h3').title = src.textContent); }
     $('error').textContent = report.status === 'failed' ? (report.error === 'cancelled' ? 'Stopped.' : 'This report did not finish: ' + (report.error || 'unknown error')) : '';
     const next = $('next'); next.replaceChildren();
     if (report.status === 'ok' && (report.suggestions || []).length) {
@@ -270,6 +310,13 @@ const canvas = (() => {
       el.classList.toggle('w2', w === 2); el.classList.toggle('wfull', w === 'full');
       const size = el.querySelector('.arr [data-size]'); if (size) size.textContent = w === 2 ? 'Wide' : w === 'full' ? 'Full row' : 'Normal';
     });
+    // The last tile of a dashboard takes the columns its row has left, unless the person set its width.
+    const list = ordered().filter(el => !el.classList.contains('kpi')), lastTile = list[list.length - 1];
+    tiles().forEach(el => el.classList.remove('fill2', 'fill3'));
+    if (document.body.classList.contains('dash') && lastTile && !layout.width[lastTile.dataset.seq]) {
+      const used = list.slice(0, -1).reduce((n, el) => { const w = layout.width[el.dataset.seq]; const span = w === 'full' ? 3 : w === 2 ? 2 : 1; return w === 'full' ? Math.ceil(n / 3) * 3 + 3 : (n % 3) + span > 3 ? Math.ceil(n / 3) * 3 + span : n + span; }, 0);
+      const left = 3 - (used % 3); if (left === 2) lastTile.classList.add('fill2'); if (left === 3 && list.length > 1) lastTile.classList.add('fill3');
+    }
   }
   function keep(order) { layout.order = order.map(el => Number(el.dataset.seq)); place(); post({ type: 'layout', order: layout.order, width: layout.width }); }
   function arrangeTools(el) {
@@ -298,7 +345,8 @@ const canvas = (() => {
     const mode = plot && plot.classList.contains('up-good') ? ['--good', '--bad'] : plot && plot.classList.contains('up-bad') ? ['--bad', '--good'] : ['--chart-1', '--chart-3'];
     const own = { '--chart-up': LIGHT[mode[0]], '--chart-down': LIGHT[mode[1]] };
     let v = value, guard = 0;
-    while (v.includes('var(') && guard++ < 6) v = v.replace(/var\((--[\w-]+)(?:,([^()]*))?\)/g, (_, n, fb) => own[n] || LIGHT[n] || (fb || '').trim() || '#000000');
+    const themed = document.body.dataset.theme ? getComputedStyle(document.body) : null, live = n => themed && n.startsWith('--chart-') && !own[n] ? themed.getPropertyValue(n).trim() : '';
+    while (v.includes('var(') && guard++ < 6) v = v.replace(/var\((--[\w-]+)(?:,([^()]*))?\)/g, (_, n, fb) => own[n] || live(n) || LIGHT[n] || (fb || '').trim() || '#000000');
     return v;
   }
   function picture(svg) {

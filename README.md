@@ -29,6 +29,11 @@ bullet, gauge, funnel, sankey, scatter, Gantt and word cloud. A street map and a
 
 ## Working with a dashboard
 
+On a wide screen a dashboard opens in its own view, in the style of a Tableau or Power BI page: a light rail on the
+left (title, filters, theme, export, ask), a row of key numbers with their trend, and a grid of flat tiles that fits
+one screen. Three themes: teal, indigo and paper. "Pages" in the rail opens the list of dashboards and reports;
+"New" goes back to the plain view to ask something else.
+
 - **Page filters:** a dashboard has filters at the top (for example Department, Category, a date range). A filter
   narrows every block that follows it. No model is called: each block runs its own query again with the value (about
   half a second for a page of six blocks on the sample data). The value travels to MySQL as a bound parameter, never

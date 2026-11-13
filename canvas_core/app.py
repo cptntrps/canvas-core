@@ -58,7 +58,7 @@ def create_app(settings=None, database=None) -> Flask:
             skip = ([own] if own else []) + [p for p, origin in state["cross"].items() if origin == block["seq"]]
             view = filters.Filtered(database, state["values"], skip)
             try:
-                if spec.get("through_sql"):
+                if spec.get("through_sql") and spec.get("kind") != "kpi":      # a kpi block prints no date
                     rows = view.run(spec["through_sql"])["rows"]
                     if rows and rows[0][0]:
                         spec["data_through"] = str(rows[0][0])[:10]
@@ -89,7 +89,7 @@ def create_app(settings=None, database=None) -> Flask:
 
     @app.get("/shell")
     def shell():
-        return Response(render.shell(), mimetype="text/html")
+        return Response(render.shell(), mimetype="text/html", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/health")
     def health():
@@ -162,13 +162,16 @@ def create_app(settings=None, database=None) -> Flask:
         found = store.get_report(rid)
         if found is None:
             return jsonify({"error": "no such report"}), 404
-        body, seqs = request.get_json(silent=True) or {}, [b["seq"] for b in found["blocks"]]
-        order = [s for s in body.get("order") or [] if s in seqs]
+        body, seqs, have = request.get_json(silent=True) or {}, [b["seq"] for b in found["blocks"]], found["layout"]
+        order = [s for s in (body["order"] if "order" in body else have.get("order", [])) or [] if s in seqs]     # a part that is not sent stays as it is
         if len(set(order)) != len(order):
             return jsonify({"error": "order names a block twice"}), 422
-        width = {str(s): w for s, w in (body.get("width") or {}).items() if str(s).isdigit() and int(s) in seqs and w in (1, 2, "full")}
-        before = found["layout"].get("width", {})
-        store.set_layout(rid, {"order": order, "width": width})
+        width = {str(s): w for s, w in ((body["width"] if "width" in body else have.get("width", {})) or {}).items() if str(s).isdigit() and int(s) in seqs and w in (1, 2, "full")}
+        theme = body.get("theme", have.get("theme"))
+        if theme not in (None, "teal", "indigo", "paper"):
+            return jsonify({"error": "theme must be teal, indigo or paper"}), 422
+        before = have.get("width", {})
+        store.set_layout(rid, {"order": order, "width": width, **({"theme": theme} if theme else {})})
         for block in store.get_report(rid, with_spec=True)["blocks"]:      # a chart whose tile changed width is drawn again, from the data it has
             key = str(block["seq"])
             if block["kind"] == "chart" and before.get(key) != width.get(key):

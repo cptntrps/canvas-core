@@ -84,6 +84,8 @@ def fill(database, spec: dict) -> dict:
 
 def draw(spec: dict, columns: int = 1) -> dict:
     drawn = {k: v for k, v in spec.items() if k not in ("sql", "bind", "repeat_reason", "cluster", "through_sql", "unfiltered")}
+    if drawn.get("kind") == "kpi":
+        drawn.pop("data_through", None)          # a kpi block prints no date; an older refresh could leave one here
     try:
         return render.render_block(drawn, columns) if columns != 1 else render.render_block(drawn)
     except render.Refused as exc:
@@ -130,6 +132,20 @@ def alternatives(database, spec: dict) -> list[str]:
     return out
 
 
+ESCAPED = __import__("re").compile(r"\\u([0-9a-fA-F]{4})")
+
+
+def unescape(value):
+    """Text a model escaped twice ("T\\u0026E") as the reader should see it ("T&E"), in every text of a tool call."""
+    if isinstance(value, str):
+        return ESCAPED.sub(lambda m: chr(int(m.group(1), 16)), value)
+    if isinstance(value, list):
+        return [unescape(v) for v in value]
+    if isinstance(value, dict):
+        return {k: unescape(v) for k, v in value.items()}
+    return value
+
+
 class Tools:
     def __init__(self, database, report_id: str, mode: str):
         self.db, self.rid, self.mode = database, report_id, mode
@@ -140,7 +156,7 @@ class Tools:
         if handler is None:
             return f"REFUSED: there is no tool named {name}"
         try:
-            return handler(args if isinstance(args, dict) else {})
+            return handler(unescape(args) if isinstance(args, dict) else {})
         except Refused as exc:
             store.event(self.rid, "refusal", name, {"error": str(exc), "args": args})
             return f"REFUSED: {exc}"

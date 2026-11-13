@@ -26,6 +26,32 @@ main { display: grid; grid-template-rows: auto auto 1fr auto; min-width: 0; min-
 #filters input[type=date] { border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; font: inherit; font-size: 13px; color: inherit; background: var(--panel); }
 #filters small { color: var(--muted); font-weight: 400; }
 button.act.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+/* ---- the dashboard view: a light rail with the title, the filters and the actions; the page takes the rest ---- */
+#rail { display: none; }
+body.dashview, body.dashview[data-theme="teal"] { --bg: #F3F6F7; --panel: #FFFFFF; --rail: #E4EDEF; --ink: #14262B; --muted: #5A6B70; --line: #CFDBDE; --accent: #177E89; --accent-ink: #FFFFFF; color-scheme: light; }
+body.dashview[data-theme="indigo"] { --bg: #F4F5FA; --rail: #E7E8F6; --ink: #171A2E; --muted: #5C6078; --line: #D3D6EA; --accent: #4F46E5; }
+body.dashview[data-theme="paper"] { --bg: #F6F1EA; --panel: #FFFDFA; --rail: #EEE5D8; --ink: #2A241D; --muted: #6E6357; --line: #DCD0BF; --accent: #B5652B; }
+body.dashview { grid-template-columns: 232px 1fr; }
+body.dashview > aside, body.dashview #bar, body.dashview #filters, body.dashview #ask { display: none; }
+body.dashview main { grid-template-rows: 1fr; }
+body.dashview #rail { display: flex; flex-direction: column; gap: 14px; padding: 14px 14px 12px; background: var(--rail); border-right: 1px solid var(--line); overflow-y: auto; min-height: 0; font-size: 13px; }
+body.dashview.drawer > aside { display: flex; position: fixed; z-index: 30; left: 232px; top: 0; bottom: 0; width: 300px; box-shadow: 8px 0 30px rgba(0, 0, 0, .18); }
+#rail .top { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+#rail .top button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#rtitle { font-size: 18px; line-height: 1.2; font-weight: 700; margin: 0; text-wrap: balance; }
+#rail h3 { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 700; }
+#rail .f { margin-bottom: 9px; } #rail .f > span { display: block; font-weight: 600; margin-bottom: 4px; } #rail .f small { display: block; color: var(--muted); margin-top: 2px; }
+#rail .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+#rail .seg button, #rail .row button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12.5px; cursor: pointer; }
+#rail .seg button.on, #rail .row button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+#rail .row button:disabled { opacity: .45; cursor: default; }
+#rail select, #rail input[type=date] { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12.5px; color: var(--ink); background: var(--panel); margin-bottom: 4px; }
+#rail select.on, #rail input.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+#rail .row { display: flex; flex-wrap: wrap; gap: 5px; }
+#rail .dots button { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line); cursor: pointer; }
+#rail .dots button.on { box-shadow: 0 0 0 2px var(--ink); }
+#rail textarea { min-height: 54px; font-size: 12.5px; border-radius: 8px; background: var(--panel); border-color: var(--line); padding: 7px 9px; margin-bottom: 5px; }
+#rstate { color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 6px; } #rstate.warn { color: #B4690E; }
 #bar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); min-height: 52px; flex-wrap: wrap; }
 #state { color: var(--muted); font-size: 13px; flex: 1; min-width: 120px; }
 #state.warn { color: var(--warn); }
@@ -50,6 +76,17 @@ textarea { width: 100%; resize: none; border: 1px solid var(--line); border-radi
 </style>
 </head>
 <body>
+<nav id="rail" aria-label="Dashboard">
+  <div class="top"><button type="button" id="rpages" title="Other dashboards and reports">&#9776; Pages</button><span>{{name}}</span></div>
+  <h2 id="rtitle"></h2>
+  <section id="rfilterbox"><h3>Filters</h3><div id="rfilters"></div></section>
+  <section><h3>View</h3><div class="row dots" id="rthemes"></div><div class="row" style="margin-top:7px"><button type="button" id="rarrange">Arrange tiles</button></div></section>
+  <section><h3>Export</h3><div class="row"><button type="button" id="rpptx">PowerPoint</button><button type="button" id="rpdf">PDF</button></div></section>
+  <section><h3>Page</h3><div class="row"><button type="button" id="rrefresh">Refresh data</button><button type="button" id="rpin">Pin</button><button type="button" id="rstop">Stop</button><button type="button" id="rremove">Delete</button></div></section>
+  <section><h3>Ask</h3><textarea id="rq" rows="2" placeholder="Add a chart of ..., or ask a question" aria-label="Your request"></textarea>
+    <div class="row"><button type="button" id="radd">Add to page</button><button type="button" id="rask">Ask</button><button type="button" id="rnew">New</button></div></section>
+  <p id="rstate" role="status"></p>
+</nav>
 <aside>
   <h1>{{name}}</h1>
   <div id="lists">
@@ -143,7 +180,46 @@ function filterBar(r) {
   }
   if (Object.keys(f.values).length) { const b = document.createElement('button'); b.type = 'button'; b.className = 'act'; b.textContent = 'Clear filters'; b.addEventListener('click', () => applyFilters({}, {})); el.append(b); }
 }
-function state(text, warn) { $('state').textContent = text; $('state').classList.toggle('warn', !!warn); }
+function state(text, warn) { for (const id of ['state', 'rstate']) { $(id).textContent = text; $(id).classList.toggle('warn', !!warn); } }
+const THEMES = { teal: '#177E89', indigo: '#4F46E5', paper: '#B5652B' };
+const wide = window.matchMedia('(min-width: 1000px)');
+let plain = false;                                    // "New": leave the dashboard view to ask something else
+function rail(r) {
+  const on = !!r && r.mode === 'dashboard' && wide.matches && !plain;
+  document.body.classList.toggle('dashview', on);
+  if (!on) { document.body.classList.remove('drawer'); delete document.body.dataset.theme; return; }
+  const theme = (r.layout || {}).theme || 'teal', running = r.status === 'running', f = r.filters;
+  document.body.dataset.theme = theme;
+  $('rtitle').textContent = r.title || r.question;
+  for (const [id, from] of [['rpptx', 'pptx'], ['rpdf', 'pdf'], ['rrefresh', 'refresh'], ['rpin', 'pin'], ['rstop', 'stop'], ['rremove', 'remove']]) { $(id).disabled = $(from).disabled; if (id === 'rpin' || id === 'rremove') $(id).textContent = $(from).textContent; }
+  $('rarrange').disabled = running; $('rarrange').classList.toggle('on', $('arrange').classList.contains('on')); $('rarrange').textContent = $('arrange').classList.contains('on') ? 'Done arranging' : 'Arrange tiles';
+  $('rstop').hidden = !running; $('radd').disabled = $('rask').disabled = running;
+  const key = r.id + JSON.stringify(f) + running + theme;
+  if ($('rail').dataset.key === key) return; $('rail').dataset.key = key;
+  const dots = $('rthemes'); dots.replaceChildren();
+  for (const [name, colour] of Object.entries(THEMES)) { const b = document.createElement('button'); b.type = 'button'; b.style.background = colour; b.title = 'Theme: ' + name; b.setAttribute('aria-label', 'Theme ' + name); b.classList.toggle('on', name === theme);
+    b.addEventListener('click', () => api('/api/reports/' + current + '/layout', json({ theme: name })).then(() => poll()).catch(err => state(err.message, true))); dots.append(b); }
+  const box = $('rfilters'); box.replaceChildren(); $('rfilterbox').hidden = !(f.defs.length && !running);
+  const data = r.blocks.filter(b => b.kind !== 'insight' && b.kind !== 'heading').length;
+  const change = (param, value) => applyFilters({ ...f.values, [param]: value || null }, null);
+  for (const d of f.defs) {
+    const wrap = document.createElement('div'); wrap.className = 'f'; const name = document.createElement('span'); name.textContent = d.name; wrap.append(name);
+    if (d.kind === 'choice' && d.options.length <= 5) {
+      const seg = document.createElement('div'); seg.className = 'seg';
+      for (const o of ['', ...d.options]) { const b = document.createElement('button'); b.type = 'button'; b.textContent = o || 'All'; b.classList.toggle('on', (f.values[d.param] || '') === o); b.addEventListener('click', () => change(d.param, o)); seg.append(b); }
+      wrap.append(seg);
+    } else if (d.kind === 'choice') {
+      const s = document.createElement('select'); s.setAttribute('aria-label', d.name); s.append(new Option('All', '')); for (const o of d.options) s.append(new Option(o, o));
+      s.value = f.values[d.param] || ''; s.classList.toggle('on', !!s.value); s.addEventListener('change', () => change(d.param, s.value)); wrap.append(s);
+    } else for (const end of ['from', 'to']) {
+      const i = document.createElement('input'); i.type = 'date'; i.value = f.values[d.param + '_' + end] || ''; i.title = d.name + ' ' + end; i.setAttribute('aria-label', d.name + ' ' + end); i.classList.toggle('on', !!i.value);
+      i.addEventListener('change', () => change(d.param + '_' + end, i.value)); wrap.append(i);
+    }
+    if (d.follows < data) { const n = document.createElement('small'); n.textContent = d.follows + ' of ' + data + ' tiles follow it'; wrap.append(n); }
+    box.append(wrap);
+  }
+  if (Object.keys(f.values).length) { const row = document.createElement('div'); row.className = 'row'; const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Clear filters'; b.addEventListener('click', () => applyFilters({}, {})); row.append(b); box.append(row); }
+}
 function buttons(r) {
   const running = r && r.status === 'running';
   $('stop').disabled = !running; $('pin').disabled = !r || running; $('remove').disabled = !r || running; $('refresh').disabled = !r || running;
@@ -151,6 +227,7 @@ function buttons(r) {
   $('pdf').disabled = $('pptx').disabled = $('arrange').disabled = !r || running; $('arrange').hidden = !r || r.mode !== 'dashboard';
   if ($('arrange').hidden || running) setArrange(false);
   filterBar(r);
+  rail(r);
   $('addmode').hidden = !r || running; if ($('addmode').hidden && document.querySelector('input[name=mode]:checked').value === 'extend') pick('answer');
 }
 async function lists() {
@@ -179,7 +256,7 @@ async function poll() {
 }
 function setArrange(on) { $('arrange').classList.toggle('on', on); $('arrange').textContent = on ? 'Done arranging' : 'Arrange'; if (ready) frame.contentWindow.canvas.arrange(on);
   if (on) state('Drag a tile onto another to move it, or use its arrows. The width button changes its size.'); }
-function open(id) { clearTimeout(timer); current = id; last = null; setArrange(false); if (ready) frame.contentWindow.canvas.clear(); poll(); lists(); }
+function open(id) { clearTimeout(timer); current = id; last = null; plain = false; document.body.classList.remove('drawer'); setArrange(false); if (ready) frame.contentWindow.canvas.clear(); poll(); lists(); }
 async function ask(text, mode, parent) {
   text = text.trim(); if (!text) return;
   if (mode === 'extend' && current) {
@@ -204,6 +281,13 @@ $('arrange').addEventListener('click', () => setArrange(!$('arrange').classList.
 $('pdf').addEventListener('click', () => { setArrange(false); state('In the print window, choose "Save as PDF".'); frame.contentWindow.focus(); frame.contentWindow.print(); });
 $('pptx').addEventListener('click', async () => { setArrange(false); state('Builds the PowerPoint file'); $('pptx').disabled = true;
   try { state('Saved ' + await frame.contentWindow.canvas.exportPptx() + ' (one slide per block).'); } catch (err) { state('The PowerPoint export failed: ' + err.message, true); } $('pptx').disabled = false; });
+for (const [id, to] of [['rpptx', 'pptx'], ['rpdf', 'pdf'], ['rrefresh', 'refresh'], ['rpin', 'pin'], ['rstop', 'stop'], ['rremove', 'remove'], ['rarrange', 'arrange']]) $(id).addEventListener('click', () => { $(to).click(); buttons(last); });
+$('rpages').addEventListener('click', () => document.body.classList.toggle('drawer'));
+$('mid').addEventListener('click', () => document.body.classList.remove('drawer'));
+$('radd').addEventListener('click', () => { const t = $('rq').value; $('rq').value = ''; ask(t, 'extend', null); });
+$('rask').addEventListener('click', () => { const t = $('rq').value; $('rq').value = ''; ask(t, 'answer', current); });
+$('rnew').addEventListener('click', () => { plain = true; buttons(last); $('q').focus(); });
+wide.addEventListener('change', () => buttons(last));
 document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => { $('layout').hidden = document.querySelector('input[name=mode]:checked').value !== 'dashboard'; }));
 api('/api/layouts').then(d => { for (const l of d.layouts) { const o = document.createElement('option'); o.value = l.key; o.textContent = l.name; o.title = l.use; $('layout').appendChild(o); } });
 lists();

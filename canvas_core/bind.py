@@ -47,6 +47,15 @@ def apply(spec: dict, result: dict) -> dict:
         out["rows"] = [list(r) for r in rows]
         return out
     out[key] = [dict(zip(columns, r)) for r in rows]
+    if spec.get("kind") == "kpi":            # the recent series of a number arrives as one text column: "690,720,810"
+        for row in out[key]:
+            if isinstance(row.get("spark"), str):
+                try:
+                    row["spark"] = [float(v) for v in row["spark"].split(",") if v.strip()][-60:]
+                except ValueError as exc:
+                    raise BindError('a kpi "spark" column holds numbers joined by commas, for example GROUP_CONCAT(total ORDER BY month)') from exc
+            if row.get("spark") is None or (isinstance(row.get("spark"), list) and len(row["spark"]) < 3):
+                row.pop("spark", None)
     if spec.get("chart") == "gantt":
         for row in out[key]:
             for field in ("start", "end"):
